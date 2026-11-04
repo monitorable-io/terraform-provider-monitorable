@@ -9,6 +9,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/monitorable-io/terraform-provider-monitorable/internal/client/fake"
 )
 
 type recorder struct {
@@ -246,5 +248,40 @@ func TestRetryStopsWhenContextCancelled(t *testing.T) {
 	}
 	if rec.n != 1 {
 		t.Fatalf("requests = %d, want 1", rec.n)
+	}
+}
+
+func TestRetryIdempotencyInProgress(t *testing.T) {
+	f := fake.New(fake.Options{})
+	t.Cleanup(f.Close)
+	c, err := New(f.URL(), testKey, testUA)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rec := &recorder{}
+	c.sleep = rec.sleep
+	f.InjectIdempotencyInProgress(1)
+
+	resp, err := c.CreateServer(context.Background(), "web", "idem-busy")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.AgentAPIKey == "" || resp.Server.ID <= 0 {
+		t.Fatalf("resp = %+v, want a first-time 201", resp)
+	}
+	if len(rec.slept) != 1 || rec.slept[0] != 2*time.Second {
+		t.Fatalf("slept = %v, want [2s] (the Retry-After of the in-progress answer)", rec.slept)
+	}
+	var keys []string
+	for _, r := range f.Requests() {
+		if r.Method == "POST" && r.Path == "/v1/servers" {
+			keys = append(keys, r.IdempotencyKey)
+		}
+	}
+	if len(keys) != 2 || keys[0] != "idem-busy" || keys[1] != "idem-busy" {
+		t.Fatalf("POST Idempotency-Keys = %v", keys)
+	}
+	if n := len(f.Servers()); n != 1 {
+		t.Fatalf("servers = %d, want 1", n)
 	}
 }

@@ -27,10 +27,15 @@ func (e *APIError) Error() string {
 	return s
 }
 
-// IsNotFound reports whether the API answered 404.
-func (e *APIError) IsNotFound() bool { return e.Status == http.StatusNotFound }
+// IsNotFound reports whether the API itself answered 404 not_found. A 404
+// without a problem body (code "http_404", for example an edge or proxy error
+// page) is not the API saying the object is gone, so it does not count.
+func (e *APIError) IsNotFound() bool {
+	return e.Status == http.StatusNotFound && e.Code == "not_found"
+}
 
-// IsNotFound reports whether err is an APIError with status 404.
+// IsNotFound reports whether err is an APIError for which (*APIError).IsNotFound
+// is true.
 func IsNotFound(err error) bool {
 	var ae *APIError
 	return errors.As(err, &ae) && ae.IsNotFound()

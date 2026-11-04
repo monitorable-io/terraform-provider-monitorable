@@ -51,6 +51,27 @@ func TestNewRequiresKeyAndNormalisesEndpoint(t *testing.T) {
 	if _, err := New("api.monitorable.io", testKey, testUA); err == nil {
 		t.Fatal("an endpoint without a scheme must be an error")
 	}
+	for _, bad := range []string{
+		"https://api.monitorable.io/v1", "https://api.monitorable.io/v1/", "https://api.monitorable.io?x=1",
+		"https://api.monitorable.io/?x=1", "https://api.monitorable.io#frag", "https://api.monitorable.io?",
+		"ftp://api.monitorable.io", "https://user:pw@api.monitorable.io",
+	} {
+		_, err := New(bad, testKey, testUA)
+		if err == nil {
+			t.Errorf("New(%q) must be an error", bad)
+			continue
+		}
+		if strings.Contains(err.Error(), "pw") {
+			t.Errorf("error for %q echoes the credentials: %v", bad, err)
+		}
+	}
+	_, err := New("https://api.monitorable.io/v1", testKey, testUA)
+	if want := `endpoint must be scheme://host[:port] without a path, got "https://api.monitorable.io/v1"`; err == nil || err.Error() != want {
+		t.Errorf("path error = %v, want %q", err, want)
+	}
+	if c, err := New("http://127.0.0.1:8080", testKey, testUA); err != nil || c.endpoint != "http://127.0.0.1:8080" {
+		t.Fatalf("host:port endpoint: %v %v", c, err)
+	}
 	c, err := New("https://api.monitorable.io/", testKey, testUA)
 	if err != nil {
 		t.Fatal(err)
@@ -267,16 +288,23 @@ func TestListServersStatusAndQuery(t *testing.T) {
 	c := newTestClient(t, f)
 	f.AddServer("Web-One")
 	f.AddServer("db-1")
-	got, err := c.ListServers(context.Background(), ListServersParams{Status: "dormant", Query: "web"})
+	got, err := c.ListServers(context.Background(), ListServersParams{Status: "offline", Query: "web"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(got) != 1 || got[0].Name != "Web-One" {
 		t.Fatalf("got = %+v", got)
 	}
+	// A server nothing has reported on is offline (until it is a week old), not dormant.
+	if got[0].Status != "offline" || got[0].Triage != "unreachable" {
+		t.Fatalf("new server status/triage = %q/%q, want offline/unreachable", got[0].Status, got[0].Triage)
+	}
 	q := f.Requests()[0].Query
-	if !strings.Contains(q, "status=dormant") || !strings.Contains(q, "q=web") {
+	if !strings.Contains(q, "status=offline") || !strings.Contains(q, "q=web") {
 		t.Fatalf("query = %q", q)
+	}
+	if none, err := c.ListServers(context.Background(), ListServersParams{Status: "dormant"}); err != nil || len(none) != 0 {
+		t.Fatalf("dormant filter = %+v, %v; want none", none, err)
 	}
 	if _, err := c.ListServers(context.Background(), ListServersParams{Status: "bogus"}); err == nil {
 		t.Fatal("bogus status must be a 400")
@@ -509,4 +537,83 @@ func TestBearerNeverInErrorOrLog(t *testing.T) {
 
 func tflogtestContext(w *bytes.Buffer) context.Context {
 	return tflogtest.RootLogger(context.Background(), w)
+}
+
+func TestCreateServerRequiresIdempotencyKey(t *testing.T) {
+	f := newFake(t, fake.Options{})
+	c := newTestClient(t, f)
+	for _, key := range []string{"", strings.Repeat("k", 65)} {
+		if resp, err := c.CreateServer(context.Background(), "a", key); err == nil || resp != nil {
+			t.Fatalf("key of %d characters: resp = %+v, err = %v; want an error", len(key), resp, err)
+		}
+	}
+	if n := len(f.Requests()); n != 0 {
+		t.Fatalf("%d requests were sent; an unsafe create must not leave the client", n)
+	}
+	if _, err := c.CreateServer(context.Background(), "a", strings.Repeat("k", 64)); err != nil {
+		t.Fatalf("a 64 character key is valid: %v", err)
+	}
+}
+
+func TestClientFormattingNeverPrintsKey(t *testing.T) {
+	c, err := New("https://api.monitorable.io", testKey, testUA)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, v := range []any{c, *c} {
+		out := fmt.Sprintf("%v %+v %#v %s", v, v, v, v)
+		if strings.Contains(out, "mon_test_fake") {
+			t.Errorf("formatting %T prints the key: %s", v, out)
+		}
+		if !strings.Contains(out, "api.monitorable.io") {
+			t.Errorf("formatting %T lost the endpoint: %s", v, out)
+		}
+	}
+}
+
+func TestNotFoundNeedsAnAPIProblem(t *testing.T) {
+	if !(&APIError{Status: 404, Code: "not_found"}).IsNotFound() {
+		t.Fatal("404 not_found is not found")
+	}
+	proxy := &APIError{Status: 404, Code: "http_404"}
+	if proxy.IsNotFound() || IsNotFound(proxy) {
+		t.Fatal("a 404 without a problem body (code http_404) must not count as gone")
+	}
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		w.WriteHeader(404)
+		_, _ = w.Write([]byte("<html>edge: no route</html>"))
+	}))
+	defer srv.Close()
+	c, _ := New(srv.URL, testKey, testUA)
+	ctx := context.Background()
+	if err := c.DeleteServer(ctx, 5); err == nil || IsNotFound(err) {
+		t.Fatalf("DeleteServer on an edge 404 = %v, want a non-not-found error", err)
+	}
+	if err := c.UnmuteServerAlerts(ctx, 5); err == nil || IsNotFound(err) {
+		t.Fatalf("UnmuteServerAlerts on an edge 404 = %v, want a non-not-found error", err)
+	}
+	var ae *APIError
+	if _, err := c.GetServer(ctx, 5); !errors.As(err, &ae) || ae.Code != "http_404" || IsNotFound(err) {
+		t.Fatalf("GetServer on an edge 404 = %v", err)
+	}
+}
+
+func TestRedirectsAreRefused(t *testing.T) {
+	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		t.Error("the redirect target received a request")
+		_, _ = w.Write([]byte("{}"))
+	}))
+	defer target.Close()
+	src := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, target.URL+"/v1/me", http.StatusFound)
+	}))
+	defer src.Close()
+	c, _ := New(src.URL, testKey, testUA)
+	_, err := c.Me(context.Background())
+	var ae *APIError
+	if !errors.As(err, &ae) || ae.Status != 302 || ae.Code != "http_302" {
+		t.Fatalf("err = %#v, want APIError http_302", err)
+	}
 }

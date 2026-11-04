@@ -247,6 +247,17 @@ func TestEveryClientCallExistsInOpenAPI(t *testing.T) {
 		}
 		d.check(t, "replay", reflect.TypeFor[CreateServerResponse](), s)
 	})
+
+	t.Run("idempotency header", func(t *testing.T) {
+		op := d.Paths["/v1/servers"]["post"]
+		params, _ := op["parameters"].([]any)
+		for _, p := range params {
+			if pm := asMap(p); pm["in"] == "header" && strings.EqualFold(pm["name"].(string), "Idempotency-Key") {
+				return
+			}
+		}
+		t.Fatal("POST /v1/servers does not declare the Idempotency-Key header parameter")
+	})
 }
 
 var idSegment = regexp.MustCompile(`/v1/servers/\d+`)

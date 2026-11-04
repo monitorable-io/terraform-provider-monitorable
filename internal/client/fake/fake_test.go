@@ -112,6 +112,9 @@ func TestPlanLimit402(t *testing.T) {
 	if st != 402 || prob["code"] != "plan_limit_reached" || prob["detail"] != "max_servers is 1 on your plan" {
 		t.Fatalf("second = %d %v", st, prob)
 	}
+	if prob["title"] != "Plan limit reached" || prob["type"] != "https://monitorable.io/docs/api/errors#plan_limit_reached" {
+		t.Fatalf("title/type = %v / %v, want the backend's", prob["title"], prob["type"])
+	}
 	if !strings.HasPrefix(hdr.Get("Content-Type"), "application/problem+json") {
 		t.Fatalf("content type %q", hdr.Get("Content-Type"))
 	}
@@ -322,5 +325,45 @@ func TestDashboardHelpers(t *testing.T) {
 	f.DeleteServer(id)
 	if len(f.Servers()) != 0 {
 		t.Fatal("DeleteServer")
+	}
+}
+
+func TestNewServerIsOfflineNotDormant(t *testing.T) {
+	f := newFake(t, fake.Options{})
+	f.AddServer("a")
+	if s := f.Servers()[0]; s.Status != "offline" || s.Triage != "unreachable" {
+		t.Fatalf("status/triage = %q/%q, want offline/unreachable", s.Status, s.Triage)
+	}
+}
+
+func TestReplayOfDeletedServerIs404(t *testing.T) {
+	f := newFake(t, fake.Options{})
+	h := map[string]string{"Idempotency-Key": "gone"}
+	call(t, f, "POST", "/v1/servers", `{"name":"a"}`, h)
+	f.DeleteServer(f.Servers()[0].ID)
+	st, _, p := call(t, f, "POST", "/v1/servers", `{"name":"a"}`, h)
+	if st != 404 || p["code"] != "not_found" {
+		t.Fatalf("replay after delete = %d %v, want 404 not_found", st, p)
+	}
+	if len(f.Servers()) != 0 {
+		t.Fatal("a replay must never create a second server")
+	}
+}
+
+func TestInjectIdempotencyInProgress(t *testing.T) {
+	f := newFake(t, fake.Options{})
+	f.InjectIdempotencyInProgress(1)
+	h := map[string]string{"Idempotency-Key": "busy"}
+	st, hdr, p := call(t, f, "POST", "/v1/servers", `{"name":"a"}`, h)
+	if st != 503 || p["code"] != "idempotency_unavailable" || hdr.Get("Retry-After") != "2" ||
+		p["detail"] != "a request with this Idempotency-Key is still in progress; retry shortly" ||
+		p["title"] != "Idempotency store unavailable" {
+		t.Fatalf("in-progress = %d %v %v", st, hdr, p)
+	}
+	if len(f.Servers()) != 0 {
+		t.Fatal("the in-progress answer must not create anything")
+	}
+	if st, _, _ := call(t, f, "POST", "/v1/servers", `{"name":"a"}`, h); st != 201 {
+		t.Fatalf("after the injection = %d, want 201", st)
 	}
 }

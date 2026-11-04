@@ -74,6 +74,7 @@ type injection struct {
 	method, path string // empty = any request
 	status       int
 	n            int
+	rep          *reply // custom answer; nil = the standard problem for status
 }
 
 // Fake is the in-process API.
@@ -178,6 +179,19 @@ func (f *Fake) inject(method, path string, status, n int) {
 	f.injections = append(f.injections, &injection{method: method, path: path, status: status, n: n})
 }
 
+// InjectIdempotencyInProgress makes the next n POST /v1/servers requests
+// answer what the real API answers while a request with the same
+// Idempotency-Key is still in flight: 503 idempotency_unavailable with
+// Retry-After: 2. Nothing is created.
+func (f *Fake) InjectIdempotencyInProgress(n int) {
+	rep := fail(503, "idempotency_unavailable",
+		"a request with this Idempotency-Key is still in progress; retry shortly")
+	rep.hdr = map[string]string{"Retry-After": "2"}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.injections = append(f.injections, &injection{method: "POST", path: "/v1/servers", status: 503, n: n, rep: &rep})
+}
+
 // LoseNextCreateResponse makes the next POST /v1/servers be fully processed
 // (server created, idempotency recorded) and then answered 503 internal, as if
 // the response was lost on the way back.
@@ -198,16 +212,53 @@ func (f *Fake) Requests() []RecordedRequest {
 
 func (f *Fake) addLocked(name, via string) *Server {
 	now := time.Now().UTC().Truncate(time.Second)
-	s := &Server{ID: f.nextID, Name: name, Status: "dormant", Triage: "dormant", CreatedAt: &now, CreatedVia: via}
+	s := &Server{ID: f.nextID, Name: name, CreatedAt: &now, CreatedVia: via}
 	f.nextID++
 	f.servers[s.ID] = s
 	return s
+}
+
+// dormantAfter is the backend's triage.DormantAfter.
+const dormantAfter = 7 * 24 * time.Hour
+
+// liveness mirrors the backend's triage.Liveness for a server nothing ever
+// reported on (the fake never sets LastSeenAt): offline until it has existed
+// for dormantAfter, then dormant.
+func liveness(s *Server, now time.Time) string {
+	if s.LastSeenAt == nil && s.CreatedAt != nil && now.Sub(*s.CreatedAt) >= dormantAfter {
+		return "dormant"
+	}
+	if s.LastSeenAt == nil {
+		return "offline"
+	}
+	switch age := now.Sub(*s.LastSeenAt); {
+	case age < 5*time.Minute:
+		return "online"
+	case age < 15*time.Minute:
+		return "stale"
+	case age < dormantAfter:
+		return "offline"
+	}
+	return "dormant"
+}
+
+// triage is the tier of a server with no incidents.
+func triage(liveness string) string {
+	switch liveness {
+	case "online":
+		return "healthy"
+	case "dormant":
+		return "dormant"
+	}
+	return "unreachable"
 }
 
 // view returns the server as the API shows it at now: a mute whose until has
 // passed reads as unmuted.
 func view(s *Server, now time.Time) Server {
 	v := *s
+	v.Status = liveness(s, now)
+	v.Triage = triage(v.Status)
 	if v.AlertsMuted && v.AlertsMutedUntil != nil && !v.AlertsMutedUntil.After(now) {
 		v.AlertsMuted, v.AlertsMutedUntil, v.AlertsMutedReason = false, nil, ""
 	}
@@ -244,10 +295,30 @@ type reply struct {
 	hdr    map[string]string
 }
 
+// typeBase and titles are the backend's (internal/publicapi/problem.go) for
+// every code the fake emits.
+const typeBase = "https://monitorable.io/docs/api/errors#"
+
+var titles = map[string]string{
+	"invalid_api_key":         "Invalid API key",
+	"insufficient_scope":      "Insufficient scope",
+	"insufficient_role":       "Insufficient role",
+	"rate_limited":            "Rate limit exceeded",
+	"plan_limit_reached":      "Plan limit reached",
+	"idempotency_key_reused":  "Idempotency key reused",
+	"idempotency_unavailable": "Idempotency store unavailable",
+	"not_found":               "Not found",
+	"invalid_argument":        "Invalid argument",
+	"internal":                "Internal error",
+}
+
 func fail(status int, code, detail string) reply {
+	title, ok := titles[code]
+	if !ok {
+		title = "Error"
+	}
 	return reply{status: status, body: problem{
-		Type:   "https://api.monitorable.io/problems/" + code,
-		Title:  http.StatusText(status),
+		Type: typeBase + code, Title: title,
 		Status: status, Detail: detail, Code: code,
 	}}
 }
@@ -308,8 +379,11 @@ func (f *Fake) takeInjectionLocked(method, path string) *injection {
 	return nil
 }
 
-func injected(status int) reply {
-	switch status {
+func injected(in *injection) reply {
+	if in.rep != nil {
+		return *in.rep
+	}
+	switch in.status {
 	case 429:
 		rep := fail(429, "rate_limited", "rate limit exceeded")
 		p := rep.body.(problem)
@@ -320,13 +394,13 @@ func injected(status int) reply {
 	case 503:
 		return fail(503, "internal", "service unavailable")
 	default:
-		return fail(status, "internal", "injected failure")
+		return fail(in.status, "internal", "injected failure")
 	}
 }
 
 func (f *Fake) handleLocked(r *http.Request, rec RecordedRequest, body []byte, authed bool) reply {
 	if in := f.takeInjectionLocked(r.Method, r.URL.Path); in != nil {
-		return injected(in.status)
+		return injected(in)
 	}
 	if !authed {
 		return fail(401, "invalid_api_key", "the API key is missing or invalid")
@@ -459,14 +533,12 @@ func (f *Fake) createLocked(rec RecordedRequest, body []byte, now time.Time) rep
 			if prev.name != in.Name {
 				return fail(422, "idempotency_key_reused", "the Idempotency-Key was used with a different request body")
 			}
-			var sv Server
-			if s, ok := f.servers[prev.serverID]; ok {
-				sv = view(s, now)
-			} else {
-				sv = Server{ID: prev.serverID, Name: prev.name}
+			s, ok := f.servers[prev.serverID]
+			if !ok { // deleted since: a replay never creates a second server
+				return fail(404, "not_found", "server not found")
 			}
 			return reply{status: 200, body: map[string]any{
-				"server":   sv,
+				"server":   view(s, now),
 				"recovery": fmt.Sprintf("POST /v1/servers/%d/agent-key:rotate", prev.serverID),
 			}}
 		}

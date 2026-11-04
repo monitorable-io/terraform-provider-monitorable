@@ -24,6 +24,8 @@ const (
 	attemptTimeout   = 30 * time.Second
 	listPageSize     = 100
 	maxBodyBytes     = 8 << 20
+
+	maxIdempotencyKeyLen = 64 // the API's limit on Idempotency-Key
 )
 
 // Client talks to one Monitorable API endpoint with one API key.
@@ -35,8 +37,16 @@ type Client struct {
 	sleep     func(context.Context, time.Duration) error // replaced in tests
 }
 
+// String never prints the API key, whichever verb formats the client.
+func (c Client) String() string {
+	return fmt.Sprintf("client.Client{endpoint: %s, apiKey: <redacted>}", c.endpoint)
+}
+
+// GoString is String for %#v.
+func (c Client) GoString() string { return c.String() }
+
 // New returns a client for endpoint (scheme and host; a trailing slash is
-// dropped). apiKey must be non-empty. userAgent defaults to the development
+// dropped; a path, query or fragment is refused). apiKey must be non-empty. userAgent defaults to the development
 // string when empty.
 func New(endpoint, apiKey, userAgent string) (*Client, error) {
 	if apiKey == "" {
@@ -44,8 +54,13 @@ func New(endpoint, apiKey, userAgent string) (*Client, error) {
 	}
 	endpoint = strings.TrimRight(strings.TrimSpace(endpoint), "/")
 	u, err := url.Parse(endpoint)
-	if err != nil || (u.Scheme != "https" && u.Scheme != "http") || u.Host == "" {
-		return nil, fmt.Errorf("the Monitorable endpoint must be a URL with an http or https scheme and a host, got %q", endpoint)
+	if err == nil && u.User != nil {
+		// Never echo the value: userinfo can hold credentials.
+		return nil, errors.New("endpoint must be scheme://host[:port] without a path, got a URL with credentials")
+	}
+	if err != nil || (u.Scheme != "https" && u.Scheme != "http") || u.Host == "" ||
+		u.Path != "" || u.RawQuery != "" || u.Fragment != "" || strings.ContainsAny(endpoint, "?#") {
+		return nil, fmt.Errorf("endpoint must be scheme://host[:port] without a path, got %q", endpoint)
 	}
 	if userAgent == "" {
 		userAgent = defaultUserAgent
@@ -65,7 +80,8 @@ func New(endpoint, apiKey, userAgent string) (*Client, error) {
 
 // call performs one API operation: it JSON-encodes in (if not nil), sends the
 // request with retries, maps a non-2xx answer to *APIError, and decodes a
-// 2xx body into out (if not nil). ok404 turns a 404 into a nil error.
+// 2xx body into out (if not nil). ok404 turns the API's own 404 not_found into
+// a nil error; a 404 that is not a problem document stays an error.
 func (c *Client) call(ctx context.Context, method, path string, query url.Values, hdr map[string]string, in, out any, ok404 bool) error {
 	var body io.Reader
 	if in != nil {
@@ -105,11 +121,12 @@ func (c *Client) call(ctx context.Context, method, path string, query url.Values
 	if err != nil {
 		return fmt.Errorf("%s %s: reading the response: %w", method, path, c.redact(err))
 	}
-	if resp.StatusCode == http.StatusNotFound && ok404 {
-		return nil
-	}
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
-		return newAPIError(resp.StatusCode, resp.Header, raw, c.apiKey)
+		ae := newAPIError(resp.StatusCode, resp.Header, raw, c.apiKey)
+		if ok404 && ae.IsNotFound() {
+			return nil
+		}
+		return ae
 	}
 	if out == nil || resp.StatusCode == http.StatusNoContent {
 		return nil
@@ -141,11 +158,16 @@ func (c *Client) Me(ctx context.Context) (*Me, error) {
 	return &out, nil
 }
 
-// CreateServer creates a server. Every retry of the call sends the same
+// CreateServer creates a server. idempotencyKey is required (1 to 64
+// characters): without one the API cannot recognise a retried request, so the
+// call is refused before anything is sent. Every retry of the call sends the same
 // idempotencyKey, so a lost response cannot create a second server; a retry
 // that finds the server already created answers with AgentAPIKey == "" and
 // Recovery set.
 func (c *Client) CreateServer(ctx context.Context, name, idempotencyKey string) (*CreateServerResponse, error) {
+	if idempotencyKey == "" || len(idempotencyKey) > maxIdempotencyKeyLen {
+		return nil, fmt.Errorf("idempotency key must be 1 to %d characters, got %d", maxIdempotencyKeyLen, len(idempotencyKey))
+	}
 	var out CreateServerResponse
 	hdr := map[string]string{"Idempotency-Key": idempotencyKey}
 	if err := c.call(ctx, http.MethodPost, "/v1/servers", nil, hdr, createServerRequest{Name: name}, &out, false); err != nil {
