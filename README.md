@@ -50,6 +50,8 @@ make lint      # gofmt and go vet
 
 By default `make testacc` runs against an in-process fake of the API that lives in this repository (`internal/client/fake`), so it needs no account and no network.
 
+It uses Terraform 1.17.1 unless `TF_VERSION` says otherwise. CI also runs it on the supported floors: `make testacc TF_VERSION=1.5.7`, and `make testacc-tofu TOFU=/path/to/tofu` with OpenTofu 1.6.3.
+
 To run against a real endpoint, set both `MONITORABLE_API_KEY` and `MONITORABLE_ENDPOINT`:
 
 ```sh

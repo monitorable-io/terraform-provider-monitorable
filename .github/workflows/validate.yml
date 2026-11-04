@@ -21,7 +21,7 @@ jobs:
         run: go mod tidy -diff
       - run: go build ./...
       - name: gofmt
-        run: gofmt -l . | tee /dev/stderr | (! read)
+        run: gofmt -l . | tee /dev/stderr | (! read -r)
       - run: go vet ./...
       - run: go test ./...
       # No MONITORABLE_API_KEY: the acceptance suite starts its own in-process fake.
@@ -41,3 +41,38 @@ jobs:
       # Run via `go run` after setup-go so the scan uses the toolchain from go.mod.
       - name: govulncheck
         run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
+
+  # The documented floors: Terraform 1.5 and OpenTofu 1.6. The acceptance suite
+  # runs against the in-process fake on each; the docs and lint gates stay in
+  # validate (the required check).
+  validate-tf-floor:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with: { go-version-file: go.mod, cache: true }
+      - run: make testacc
+        env:
+          TF_VERSION: "1.5.7"
+
+  validate-opentofu:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      TOFU_VERSION: "1.6.3"
+      # sha256 of tofu_1.6.3_linux_amd64.zip from the release's SHA256SUMS.
+      TOFU_SHA256: "7069cf8b59b91d09bfe6fceb1a0a4f3e01473ea634dc83da56ac7f4d210b89ce"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with: { go-version-file: go.mod, cache: true }
+      - name: Install OpenTofu
+        run: |
+          zip="tofu_${TOFU_VERSION}_linux_amd64.zip"
+          curl -fsSLo "$RUNNER_TEMP/$zip" "https://github.com/opentofu/opentofu/releases/download/v${TOFU_VERSION}/$zip"
+          echo "${TOFU_SHA256}  $RUNNER_TEMP/$zip" | sha256sum -c -
+          unzip -q "$RUNNER_TEMP/$zip" tofu -d "$RUNNER_TEMP/tofu"
+          "$RUNNER_TEMP/tofu/tofu" version
+          echo "TOFU=$RUNNER_TEMP/tofu/tofu" >> "$GITHUB_ENV"
+      - run: make testacc-tofu
