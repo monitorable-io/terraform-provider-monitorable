@@ -333,3 +333,30 @@ func TestCheckRealEndpointEnv(t *testing.T) {
 		}
 	}
 }
+
+// An http:// endpoint on a host that is not local is allowed, with a warning
+// that the key travels unencrypted. The .invalid name never resolves, so the
+// configuration then fails on the network: the warning comes first.
+func TestProviderConfigurePlaintextEndpointWarns(t *testing.T) {
+	resp := configure(t, "x", ptr("mon_test_fake-secret-key"), ptr("http://api.monitorable.invalid"))
+	ws := resp.Diagnostics.Warnings()
+	if len(ws) != 1 {
+		t.Fatalf("warnings = %v, want one", ws)
+	}
+	if got, want := ws[0].Detail(), "the API key is sent unencrypted to api.monitorable.invalid; use https"; got != want {
+		t.Errorf("warning = %q, want %q", got, want)
+	}
+	if strings.Contains(fmt.Sprint(resp.Diagnostics), "mon_test_fake-secret-key") {
+		t.Error("the key leaked into a diagnostic")
+	}
+}
+
+// A loopback or .lan/.local http:// endpoint (a development stack) is not warned about.
+func TestProviderConfigureLocalPlaintextNoWarning(t *testing.T) {
+	f := fake.New(fake.Options{})
+	defer f.Close()
+	resp := configure(t, "x", ptr("mon_test_fake-unit"), ptr(f.URL()))
+	if len(resp.Diagnostics) != 0 {
+		t.Fatalf("diagnostics = %v, want none for %s", resp.Diagnostics, f.URL())
+	}
+}

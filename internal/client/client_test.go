@@ -617,3 +617,33 @@ func TestRedirectsAreRefused(t *testing.T) {
 		t.Fatalf("err = %#v, want APIError http_302", err)
 	}
 }
+
+func TestPlaintextHost(t *testing.T) {
+	cases := map[string]string{ // endpoint -> host warned about ("" = no warning)
+		"https://api.monitorable.io":   "",
+		"https://api.example.com:8443": "",
+		"http://localhost:8080":        "",
+		"http://LOCALHOST":             "",
+		"http://127.0.0.1:9000":        "",
+		"http://127.10.0.1":            "",
+		"http://[::1]:9000":            "",
+		"http://api.monitorable.lan":   "",
+		"http://box.local:8080":        "",
+		"http://api.example.com":       "api.example.com",
+		"http://api.example.com:8080":  "api.example.com:8080",
+		"http://10.0.0.5":              "10.0.0.5",
+		"http://[2001:db8::1]:80":      "[2001:db8::1]:80",
+		"http://localhost.example.com": "localhost.example.com",
+		"http://example.lan.com":       "example.lan.com",
+	}
+	for endpoint, want := range cases {
+		c, err := New(endpoint, testKey, testUA)
+		if err != nil {
+			t.Fatalf("New(%q): %v", endpoint, err)
+		}
+		host, plaintext := c.PlaintextHost()
+		if plaintext != (want != "") || host != want {
+			t.Errorf("PlaintextHost(%q) = %q, %v; want %q, %v", endpoint, host, plaintext, want, want != "")
+		}
+	}
+}

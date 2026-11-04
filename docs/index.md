@@ -67,4 +67,4 @@ If an apply is killed or interrupted after the API created a server, or if its r
 ### Optional
 
 - `api_key` (String, Sensitive) A Monitorable API key (created in the dashboard under Settings, API keys). Can also be set with the MONITORABLE_API_KEY environment variable; the attribute wins when both are set.
-- `endpoint` (String) The API origin, scheme and host without a path. Defaults to https://api.monitorable.io. Can also be set with the MONITORABLE_ENDPOINT environment variable; the attribute wins when both are set.
+- `endpoint` (String) The API origin, scheme and host without a path. Defaults to https://api.monitorable.io. Can also be set with the MONITORABLE_ENDPOINT environment variable; the attribute wins when both are set. An http:// origin whose host is not loopback and does not end in .lan or .local draws a warning, because the API key would be sent unencrypted.

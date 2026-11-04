@@ -4,6 +4,7 @@ package provider
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net"
 	"net/http"
 	"net/url"
@@ -62,7 +63,9 @@ func (p *monitorableProvider) Schema(_ context.Context, _ provider.SchemaRequest
 			},
 			"endpoint": schema.StringAttribute{
 				Description: "The API origin, scheme and host without a path. Defaults to " + defaultEndpoint + ". " +
-					"Can also be set with the MONITORABLE_ENDPOINT environment variable; the attribute wins when both are set.",
+					"Can also be set with the MONITORABLE_ENDPOINT environment variable; the attribute wins when both are set. " +
+					"An http:// origin whose host is not loopback and does not end in .lan or .local draws a warning, " +
+					"because the API key would be sent unencrypted.",
 				Optional: true,
 			},
 		},
@@ -103,6 +106,11 @@ func (p *monitorableProvider) Configure(ctx context.Context, req provider.Config
 	if err != nil {
 		resp.Diagnostics.AddAttributeError(path.Root("endpoint"), "Invalid Monitorable provider configuration", err.Error())
 		return
+	}
+	// Not an error: development stacks serve plain http on local names.
+	if host, plaintext := c.PlaintextHost(); plaintext {
+		resp.Diagnostics.AddWarning("Unencrypted Monitorable endpoint",
+			fmt.Sprintf("the API key is sent unencrypted to %s; use https", host))
 	}
 
 	me, err := c.Me(ctx)
