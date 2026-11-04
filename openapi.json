@@ -1,0 +1,4071 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Monitorable API",
+    "version": "2026-11-03",
+    "description": "The Monitorable public API. REST + JSON under /v1, authenticated with an organization API key sent as `Authorization: Bearer mon_live_…`. Keys are created by an organization owner or admin in the dashboard; the organization is implicit in the key. Errors are RFC 9457 application/problem+json bodies with a stable `code`. Every response carries RateLimit-Limit, RateLimit-Remaining and RateLimit-Reset.\n\nLists return `{\"data\": [...], \"next_cursor\": \"...\"}`; pass `next_cursor` back as `cursor` for the next page (`limit` defaults to 25, at most 100); `next_cursor` is `\"\"` on the last page. `POST /v1/servers` accepts an `Idempotency-Key` header (at most 64 characters, remembered for 24 hours per key): a replay with the same body answers 200 with the same server and without key material, a different body answers 422, and 503 means the store is unavailable or a request with the same key is still in progress. Statuses: 201 on create, 204 on delete (no body), 400 invalid argument, 401 missing or invalid key, 402 plan limit reached, 403 missing scope, insufficient role or a range outside the plan, 404 not found (including a resource of another organization), 409 conflict, 422 idempotency key reused, 429 rate limited, 503 temporarily unavailable. Unset timestamps are `null`; optional numbers are omitted when unknown."
+  },
+  "servers": [
+    {
+      "url": "https://api.monitorable.io"
+    }
+  ],
+  "components": {
+    "responses": {
+      "BadRequest": {
+        "description": "invalid_argument: a parameter or body field is malformed or out of range.",
+        "content": {
+          "application/problem+json": {
+            "schema": {
+              "$ref": "#/components/schemas/Problem"
+            }
+          }
+        }
+      },
+      "Conflict": {
+        "description": "incident_resolved: the incident is already resolved.",
+        "content": {
+          "application/problem+json": {
+            "schema": {
+              "$ref": "#/components/schemas/Problem"
+            }
+          }
+        }
+      },
+      "Forbidden": {
+        "description": "The key lacks what the call needs: insufficient_scope, insufficient_role, api_access_not_in_plan or range_not_in_plan.",
+        "content": {
+          "application/problem+json": {
+            "schema": {
+              "$ref": "#/components/schemas/Problem"
+            }
+          }
+        }
+      },
+      "NotFound": {
+        "description": "not_found: no such resource in the key's organization (a resource of another organization is indistinguishable).",
+        "content": {
+          "application/problem+json": {
+            "schema": {
+              "$ref": "#/components/schemas/Problem"
+            }
+          }
+        }
+      },
+      "PaymentRequired": {
+        "description": "plan_limit_reached: the plan's limit for this resource is reached.",
+        "content": {
+          "application/problem+json": {
+            "schema": {
+              "$ref": "#/components/schemas/Problem"
+            }
+          }
+        }
+      },
+      "ServiceUnavailable": {
+        "description": "idempotency_unavailable: the idempotency store is unavailable or a request with the same key is still in progress. Retry-After says when to retry an in-progress request.",
+        "headers": {
+          "Retry-After": {
+            "schema": {
+              "type": "integer"
+            }
+          }
+        },
+        "content": {
+          "application/problem+json": {
+            "schema": {
+              "$ref": "#/components/schemas/Problem"
+            }
+          }
+        }
+      },
+      "TooManyRequests": {
+        "description": "rate_limited. The RateLimit-Limit, RateLimit-Remaining, RateLimit-Reset and Retry-After headers say when to retry.",
+        "headers": {
+          "RateLimit-Limit": {
+            "schema": {
+              "type": "integer"
+            }
+          },
+          "RateLimit-Remaining": {
+            "schema": {
+              "type": "integer"
+            }
+          },
+          "RateLimit-Reset": {
+            "schema": {
+              "type": "integer"
+            }
+          },
+          "Retry-After": {
+            "schema": {
+              "type": "integer"
+            }
+          }
+        },
+        "content": {
+          "application/problem+json": {
+            "schema": {
+              "$ref": "#/components/schemas/Problem"
+            }
+          }
+        }
+      },
+      "Unauthorized": {
+        "description": "The key is missing, invalid, expired or revoked, or the account is suspended.",
+        "content": {
+          "application/problem+json": {
+            "schema": {
+              "$ref": "#/components/schemas/Problem"
+            }
+          }
+        }
+      },
+      "UnprocessableEntity": {
+        "description": "idempotency_key_reused: the Idempotency-Key was already used with a different request body.",
+        "content": {
+          "application/problem+json": {
+            "schema": {
+              "$ref": "#/components/schemas/Problem"
+            }
+          }
+        }
+      }
+    },
+    "schemas": {
+      "Problem": {
+        "type": "object",
+        "description": "An RFC 9457 problem document.",
+        "required": [
+          "type",
+          "title",
+          "status",
+          "detail",
+          "code",
+          "request_id"
+        ],
+        "properties": {
+          "type": {
+            "type": "string",
+            "description": "A URL identifying the problem type."
+          },
+          "title": {
+            "type": "string"
+          },
+          "status": {
+            "type": "integer",
+            "description": "The HTTP status."
+          },
+          "detail": {
+            "type": "string",
+            "description": "A plain sentence about this occurrence."
+          },
+          "code": {
+            "type": "string",
+            "description": "The stable error code, for example not_found."
+          },
+          "request_id": {
+            "type": "string",
+            "description": "The X-Request-Id of the call."
+          },
+          "class": {
+            "type": "string",
+            "description": "The rate-limit class; only on rate_limited."
+          }
+        }
+      },
+      "google.protobuf.Timestamp": {
+        "type": [
+          "string",
+          "null"
+        ],
+        "format": "date-time",
+        "examples": [
+          "2023-01-15T01:30:15.01Z",
+          "2024-12-25T12:00:00Z"
+        ],
+        "description": "A point in time in RFC 3339 format, with up to nanosecond precision. Output uses UTC (`Z`); input may use an offset from UTC. `null` when the field is unset."
+      },
+      "monitorable.api.v1.AcknowledgeIncidentRequest": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "id",
+            "format": "int32",
+            "description": "The incident's id."
+          }
+        },
+        "title": "AcknowledgeIncidentRequest",
+        "additionalProperties": false,
+        "description": "Which incident to acknowledge."
+      },
+      "monitorable.api.v1.AgentCommands": {
+        "type": "object",
+        "properties": {
+          "update_command": {
+            "type": "string",
+            "title": "update_command",
+            "description": "Re-runs the installer to move the agent to the latest version."
+          },
+          "uninstall_command": {
+            "type": "string",
+            "title": "uninstall_command",
+            "description": "Removes the agent and its service from the host."
+          }
+        },
+        "title": "AgentCommands",
+        "additionalProperties": false,
+        "description": "Agent maintenance commands, to run on the host as a user who may use sudo."
+      },
+      "monitorable.api.v1.AlertRule": {
+        "type": "object",
+        "properties": {
+          "rule_type": {
+            "type": "string",
+            "title": "rule_type",
+            "description": "The rule's type, e.g. cpu_usage, memory_usage, disk_usage, agent_offline."
+          },
+          "enabled": {
+            "type": "boolean",
+            "title": "enabled",
+            "description": "True when the rule is evaluated."
+          },
+          "threshold": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "title": "threshold",
+            "format": "double",
+            "description": "The value the rule compares against, in the rule's unit. Omitted when the\n rule has no threshold."
+          },
+          "window_minutes": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "title": "window_minutes",
+            "format": "int32",
+            "description": "How many minutes the breach must hold. Omitted when the rule has no\n window."
+          },
+          "max_notifications": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "title": "max_notifications",
+            "format": "int32",
+            "description": "The most notifications sent for one incident. Omitted when the rule uses\n the default limit."
+          },
+          "channel_ids": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "format": "int32"
+            },
+            "title": "channel_ids",
+            "description": "The channels this rule notifies. Empty means the template's channels."
+          }
+        },
+        "title": "AlertRule",
+        "additionalProperties": false,
+        "description": "One alert rule of a template."
+      },
+      "monitorable.api.v1.AlertTemplate": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "id",
+            "format": "int32",
+            "description": "The template's id."
+          },
+          "name": {
+            "type": "string",
+            "title": "name",
+            "description": "The template's name."
+          },
+          "is_default": {
+            "type": "boolean",
+            "title": "is_default",
+            "description": "True for the organization's default template."
+          },
+          "reminder_interval_minutes": {
+            "type": "integer",
+            "title": "reminder_interval_minutes",
+            "format": "int32",
+            "description": "Minutes between reminders while an incident stays unacknowledged. 0 means\n no reminders."
+          },
+          "notify_on_resolve": {
+            "type": "boolean",
+            "title": "notify_on_resolve",
+            "description": "True when a notification is sent when an incident resolves."
+          },
+          "escalate_after_minutes": {
+            "type": "integer",
+            "title": "escalate_after_minutes",
+            "format": "int32",
+            "description": "Minutes after which an unacknowledged firing incident notifies the\n escalation channels. 0 means escalation is off."
+          },
+          "rules": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/monitorable.api.v1.AlertRule"
+            },
+            "title": "rules",
+            "description": "The rules of the template."
+          },
+          "channel_ids": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "format": "int32"
+            },
+            "title": "channel_ids",
+            "description": "The channels notified by rules that do not name their own."
+          },
+          "escalation_channel_ids": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "format": "int32"
+            },
+            "title": "escalation_channel_ids",
+            "description": "The channels notified on escalation."
+          }
+        },
+        "title": "AlertTemplate",
+        "additionalProperties": false,
+        "description": "An alert template."
+      },
+      "monitorable.api.v1.Container": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "name",
+            "description": "The container name."
+          },
+          "container_id": {
+            "type": "string",
+            "title": "container_id",
+            "description": "The Docker container id."
+          },
+          "image": {
+            "type": "string",
+            "title": "image",
+            "description": "The image the container runs."
+          },
+          "status": {
+            "type": "string",
+            "title": "status",
+            "description": "running, paused, restarting, exited or dead."
+          },
+          "health": {
+            "type": "string",
+            "title": "health",
+            "description": "healthy, unhealthy or starting. Empty when the container has no\n healthcheck."
+          },
+          "cpu_percent": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "title": "cpu_percent",
+            "format": "double",
+            "description": "CPU use in percent of one core. Omitted for a container that is not\n running."
+          },
+          "memory_bytes": {
+            "type": "number",
+            "title": "memory_bytes",
+            "format": "double",
+            "description": "Memory in use, in bytes."
+          },
+          "memory_limit_bytes": {
+            "type": "number",
+            "title": "memory_limit_bytes",
+            "format": "double",
+            "description": "The memory limit in bytes; 0 means no limit."
+          },
+          "memory_percent": {
+            "type": "number",
+            "title": "memory_percent",
+            "format": "double",
+            "description": "Memory use as a percent of the limit."
+          },
+          "rx_bits_per_sec": {
+            "type": "number",
+            "title": "rx_bits_per_sec",
+            "format": "double",
+            "description": "Network receive rate in bits per second."
+          },
+          "tx_bits_per_sec": {
+            "type": "number",
+            "title": "tx_bits_per_sec",
+            "format": "double",
+            "description": "Network transmit rate in bits per second."
+          },
+          "restart_count": {
+            "type": "integer",
+            "title": "restart_count",
+            "format": "int32",
+            "description": "How many times Docker restarted the container."
+          },
+          "exit_code": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "title": "exit_code",
+            "format": "int32",
+            "description": "The exit code. Omitted unless the container exited."
+          },
+          "started_at": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/google.protobuf.Timestamp"
+              }
+            ],
+            "title": "started_at",
+            "description": "When the container last started."
+          },
+          "finished_at": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/google.protobuf.Timestamp"
+              }
+            ],
+            "title": "finished_at",
+            "description": "When the container last stopped. null while running."
+          },
+          "last_seen_at": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/google.protobuf.Timestamp"
+              }
+            ],
+            "title": "last_seen_at",
+            "description": "When the agent last reported this container."
+          }
+        },
+        "title": "Container",
+        "additionalProperties": false,
+        "description": "A Docker container."
+      },
+      "monitorable.api.v1.CreateServerRequest": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "name",
+            "description": "The server's display name, 1 to 100 characters."
+          }
+        },
+        "title": "CreateServerRequest",
+        "additionalProperties": false,
+        "description": "The name for a new server."
+      },
+      "monitorable.api.v1.CreateServerResponse": {
+        "type": "object",
+        "properties": {
+          "server": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/monitorable.api.v1.Server"
+              }
+            ],
+            "title": "server",
+            "description": "The new server."
+          },
+          "agent_api_key": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "title": "agent_api_key",
+            "description": "The agent's API key. Shown once, never retrievable again. Omitted on an\n Idempotency-Key replay (see recovery)."
+          },
+          "install_command": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "title": "install_command",
+            "description": "A shell command that installs the agent with the key. Omitted on an\n Idempotency-Key replay."
+          },
+          "recovery": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "title": "recovery",
+            "description": "Present only on a replay of the same Idempotency-Key, which answers 200:\n how to get a fresh key, \"POST /v1/servers/<id>/agent-key:rotate\".\n Omitted on the first response."
+          }
+        },
+        "title": "CreateServerResponse",
+        "additionalProperties": false,
+        "description": "The new server and the means to install its agent."
+      },
+      "monitorable.api.v1.CurrentCpu": {
+        "type": "object",
+        "properties": {
+          "load_1m": {
+            "type": "number",
+            "title": "load_1m",
+            "format": "double",
+            "description": "Load average over 1 minute."
+          },
+          "load_5m": {
+            "type": "number",
+            "title": "load_5m",
+            "format": "double",
+            "description": "Load average over 5 minutes."
+          },
+          "load_15m": {
+            "type": "number",
+            "title": "load_15m",
+            "format": "double",
+            "description": "Load average over 15 minutes."
+          },
+          "usage_percent": {
+            "type": "number",
+            "title": "usage_percent",
+            "format": "double",
+            "description": "Busy share of the processor, 0-100: user, system, iowait and steal."
+          },
+          "user_percent": {
+            "type": "number",
+            "title": "user_percent",
+            "format": "double",
+            "description": "User-mode share, 0-100."
+          },
+          "system_percent": {
+            "type": "number",
+            "title": "system_percent",
+            "format": "double",
+            "description": "Kernel-mode share, 0-100."
+          },
+          "iowait_percent": {
+            "type": "number",
+            "title": "iowait_percent",
+            "format": "double",
+            "description": "Share waiting on I/O, 0-100."
+          },
+          "steal_percent": {
+            "type": "number",
+            "title": "steal_percent",
+            "format": "double",
+            "description": "Share stolen by the hypervisor, 0-100."
+          },
+          "temperature_celsius": {
+            "type": "number",
+            "title": "temperature_celsius",
+            "format": "double",
+            "description": "Processor temperature in degrees Celsius. 0 when the server has no\n readable sensor."
+          },
+          "frequency_mhz": {
+            "type": "number",
+            "title": "frequency_mhz",
+            "format": "double",
+            "description": "Current clock frequency in MHz."
+          }
+        },
+        "title": "CurrentCpu",
+        "additionalProperties": false,
+        "description": "Processor load and usage. A value the agent does not report is 0."
+      },
+      "monitorable.api.v1.CurrentDisk": {
+        "type": "object",
+        "properties": {
+          "total_bytes": {
+            "type": "number",
+            "title": "total_bytes",
+            "format": "double",
+            "description": "Size of the filesystem, including blocks reserved for root."
+          },
+          "used_bytes": {
+            "type": "number",
+            "title": "used_bytes",
+            "format": "double",
+            "description": "Bytes in use."
+          },
+          "used_percent": {
+            "type": "number",
+            "title": "used_percent",
+            "format": "double",
+            "description": "Used share, 0-100, with reserved blocks excluded (the figure df shows)."
+          }
+        },
+        "title": "CurrentDisk",
+        "additionalProperties": false,
+        "description": "The root filesystem."
+      },
+      "monitorable.api.v1.CurrentMemory": {
+        "type": "object",
+        "properties": {
+          "total_bytes": {
+            "type": "number",
+            "title": "total_bytes",
+            "format": "double",
+            "description": "Installed memory."
+          },
+          "used_bytes": {
+            "type": "number",
+            "title": "used_bytes",
+            "format": "double",
+            "description": "Memory in use."
+          },
+          "buffered_bytes": {
+            "type": "number",
+            "title": "buffered_bytes",
+            "format": "double",
+            "description": "Memory used by buffers."
+          },
+          "cached_bytes": {
+            "type": "number",
+            "title": "cached_bytes",
+            "format": "double",
+            "description": "Memory used by the page cache."
+          }
+        },
+        "title": "CurrentMemory",
+        "additionalProperties": false,
+        "description": "Memory in bytes."
+      },
+      "monitorable.api.v1.CurrentMetrics": {
+        "type": "object",
+        "properties": {
+          "server_id": {
+            "type": "integer",
+            "title": "server_id",
+            "format": "int32",
+            "description": "The server's id."
+          },
+          "timestamp": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/google.protobuf.Timestamp"
+              }
+            ],
+            "title": "timestamp",
+            "description": "When the snapshot was taken. null if it has no time."
+          },
+          "cpu": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/monitorable.api.v1.CurrentCpu"
+              }
+            ],
+            "title": "cpu",
+            "description": "Processor load and usage."
+          },
+          "memory": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/monitorable.api.v1.CurrentMemory"
+              }
+            ],
+            "title": "memory",
+            "description": "Memory in bytes."
+          },
+          "disk": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/monitorable.api.v1.CurrentDisk"
+              }
+            ],
+            "title": "disk",
+            "description": "The root filesystem."
+          },
+          "swap": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/monitorable.api.v1.CurrentSwap"
+              }
+            ],
+            "title": "swap",
+            "description": "Swap space."
+          },
+          "network": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/monitorable.api.v1.CurrentNetwork"
+              }
+            ],
+            "title": "network",
+            "description": "Network throughput."
+          }
+        },
+        "title": "CurrentMetrics",
+        "additionalProperties": false,
+        "description": "The latest value of each headline metric."
+      },
+      "monitorable.api.v1.CurrentNetwork": {
+        "type": "object",
+        "properties": {
+          "rx_bits_per_sec": {
+            "type": "number",
+            "title": "rx_bits_per_sec",
+            "format": "double",
+            "description": "Receive rate of the busiest physical interface, bits per second."
+          },
+          "tx_bits_per_sec": {
+            "type": "number",
+            "title": "tx_bits_per_sec",
+            "format": "double",
+            "description": "Transmit rate of the busiest physical interface, bits per second."
+          },
+          "interfaces": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/monitorable.api.v1.CurrentNetworkInterface"
+            },
+            "title": "interfaces",
+            "description": "Every interface the agent reports, sorted by name. An empty list when\n there are none."
+          }
+        },
+        "title": "CurrentNetwork",
+        "additionalProperties": false,
+        "description": "Network throughput."
+      },
+      "monitorable.api.v1.CurrentNetworkInterface": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "name",
+            "description": "The interface name, for example eth0."
+          },
+          "rx_bits_per_sec": {
+            "type": "number",
+            "title": "rx_bits_per_sec",
+            "format": "double",
+            "description": "Receive rate, bits per second."
+          },
+          "tx_bits_per_sec": {
+            "type": "number",
+            "title": "tx_bits_per_sec",
+            "format": "double",
+            "description": "Transmit rate, bits per second."
+          },
+          "rx_packets_per_sec": {
+            "type": "number",
+            "title": "rx_packets_per_sec",
+            "format": "double",
+            "description": "Received packets per second."
+          },
+          "tx_packets_per_sec": {
+            "type": "number",
+            "title": "tx_packets_per_sec",
+            "format": "double",
+            "description": "Transmitted packets per second."
+          },
+          "rx_errors": {
+            "type": "number",
+            "title": "rx_errors",
+            "format": "double",
+            "description": "Receive errors since the interface came up."
+          },
+          "tx_errors": {
+            "type": "number",
+            "title": "tx_errors",
+            "format": "double",
+            "description": "Transmit errors since the interface came up."
+          }
+        },
+        "title": "CurrentNetworkInterface",
+        "additionalProperties": false,
+        "description": "One network interface."
+      },
+      "monitorable.api.v1.CurrentSwap": {
+        "type": "object",
+        "properties": {
+          "total_bytes": {
+            "type": "number",
+            "title": "total_bytes",
+            "format": "double",
+            "description": "Swap size."
+          },
+          "used_bytes": {
+            "type": "number",
+            "title": "used_bytes",
+            "format": "double",
+            "description": "Swap in use."
+          },
+          "used_percent": {
+            "type": "number",
+            "title": "used_percent",
+            "format": "double",
+            "description": "Used share, 0-100."
+          }
+        },
+        "title": "CurrentSwap",
+        "additionalProperties": false,
+        "description": "Swap space. All 0 on a server without swap."
+      },
+      "monitorable.api.v1.DeleteServerRequest": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "id",
+            "format": "int32",
+            "description": "The server's id."
+          }
+        },
+        "title": "DeleteServerRequest",
+        "additionalProperties": false,
+        "description": "Identifies the server to delete."
+      },
+      "monitorable.api.v1.DeleteServerResponse": {
+        "type": "object",
+        "title": "DeleteServerResponse",
+        "additionalProperties": false,
+        "description": "Empty: a successful delete answers 204."
+      },
+      "monitorable.api.v1.Delivery": {
+        "type": "object",
+        "properties": {
+          "channel_id": {
+            "type": "integer",
+            "title": "channel_id",
+            "format": "int32",
+            "description": "The channel's id. 0 when the channel has since been deleted."
+          },
+          "channel_name": {
+            "type": "string",
+            "title": "channel_name",
+            "description": "The channel's name. Empty when the channel has since been deleted."
+          },
+          "channel_type": {
+            "type": "string",
+            "title": "channel_type",
+            "description": "The channel's type: email, slack, discord, telegram, pagerduty, webhook or\n ntfy. none when the attempt had no channel (alerts muted, or no enabled\n channels)."
+          },
+          "kind": {
+            "type": "string",
+            "title": "kind",
+            "description": "What the attempt was: fire, resolve, reminder, escalation, or a note that\n nothing was sent: muted, no_channels, suppressed (daily cap reached)."
+          },
+          "success": {
+            "type": "boolean",
+            "title": "success",
+            "description": "Whether the channel accepted it."
+          },
+          "sent_at": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/google.protobuf.Timestamp"
+              }
+            ],
+            "title": "sent_at",
+            "description": "When the attempt was made."
+          }
+        },
+        "title": "Delivery",
+        "additionalProperties": false,
+        "description": "One notification attempt for an incident."
+      },
+      "monitorable.api.v1.Disk": {
+        "type": "object",
+        "properties": {
+          "device": {
+            "type": "string",
+            "title": "device",
+            "description": "The device name, e.g. \"sda\" or \"nvme0n1\"."
+          },
+          "type": {
+            "type": "string",
+            "title": "type",
+            "description": "The disk kind: ssd, hdd or nvme."
+          },
+          "model": {
+            "type": "string",
+            "title": "model",
+            "description": "The drive model."
+          },
+          "serial": {
+            "type": "string",
+            "title": "serial",
+            "description": "The drive serial number."
+          },
+          "capacity_bytes": {
+            "type": "number",
+            "title": "capacity_bytes",
+            "format": "double",
+            "description": "Capacity in bytes."
+          },
+          "power_on_hours": {
+            "type": "number",
+            "title": "power_on_hours",
+            "format": "double",
+            "description": "Hours the drive has been powered on."
+          },
+          "smart_passed": {
+            "type": "boolean",
+            "title": "smart_passed",
+            "description": "True when the drive's SMART overall health check passes."
+          },
+          "error_count": {
+            "type": "number",
+            "title": "error_count",
+            "format": "double",
+            "description": "SMART error count."
+          },
+          "wearout_percent": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "title": "wearout_percent",
+            "format": "int32",
+            "description": "Percent of the drive's endurance used. Omitted when the drive does not\n report it."
+          },
+          "temperature_c": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "title": "temperature_c",
+            "format": "int32",
+            "description": "Drive temperature in degrees Celsius. Omitted when not reported."
+          },
+          "updated_at": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/google.protobuf.Timestamp"
+              }
+            ],
+            "title": "updated_at",
+            "description": "When the agent last reported this disk."
+          },
+          "reallocated_sectors": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "title": "reallocated_sectors",
+            "format": "double",
+            "description": "Reallocated sector count (SATA attribute 5). Omitted for NVMe and for\n drives that do not report it."
+          }
+        },
+        "title": "Disk",
+        "additionalProperties": false,
+        "description": "A physical disk and its SMART health. Bare-metal servers only."
+      },
+      "monitorable.api.v1.EnrollRequest": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "name",
+            "description": "The server's display name: 1–100 characters after trimming. The installer\n sends the hostname by default. Ignored when server_ref matches an existing\n server (enroll never renames)."
+          },
+          "server_ref": {
+            "type": "string",
+            "title": "server_ref",
+            "description": "Optional: the host's stable id (instance id, Terraform self.id,\n inventory_hostname, VMID), at most 128 characters, no whitespace or\n control characters. A second enroll with the same server_ref rotates the\n existing server's agent key instead of creating another server."
+          }
+        },
+        "title": "EnrollRequest",
+        "additionalProperties": false,
+        "description": "The host to enroll."
+      },
+      "monitorable.api.v1.EnrollResponse": {
+        "type": "object",
+        "properties": {
+          "server_id": {
+            "type": "integer",
+            "title": "server_id",
+            "format": "int32",
+            "description": "The server's id."
+          },
+          "name": {
+            "type": "string",
+            "title": "name",
+            "description": "The server's name: the existing one on a rotation (enroll never renames)."
+          },
+          "agent_api_key": {
+            "type": "string",
+            "title": "agent_api_key",
+            "description": "The agent key, shown once."
+          },
+          "ingest_endpoint": {
+            "type": "string",
+            "title": "ingest_endpoint",
+            "description": "The OTLP endpoint the agent writes to (its MONITORABLE_ENDPOINT)."
+          },
+          "rotated": {
+            "type": "boolean",
+            "title": "rotated",
+            "description": "True when server_ref matched an existing server and its key was rotated."
+          }
+        },
+        "title": "EnrollResponse",
+        "additionalProperties": false,
+        "description": "The enrolled server and the agent key to install on the host."
+      },
+      "monitorable.api.v1.GetAgentCommandsRequest": {
+        "type": "object",
+        "title": "GetAgentCommandsRequest",
+        "additionalProperties": false,
+        "description": "No parameters: the commands are the same for every caller."
+      },
+      "monitorable.api.v1.GetCurrentMetricsRequest": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "id",
+            "format": "int32",
+            "description": "The server's id."
+          }
+        },
+        "title": "GetCurrentMetricsRequest",
+        "additionalProperties": false,
+        "description": "The server to read."
+      },
+      "monitorable.api.v1.GetIncidentRequest": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "id",
+            "format": "int32",
+            "description": "The incident's id."
+          }
+        },
+        "title": "GetIncidentRequest",
+        "additionalProperties": false,
+        "description": "Which incident to read."
+      },
+      "monitorable.api.v1.GetMeRequest": {
+        "type": "object",
+        "title": "GetMeRequest",
+        "additionalProperties": false,
+        "description": "No parameters: the key identifies itself."
+      },
+      "monitorable.api.v1.GetMetricsRangeRequest": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "id",
+            "format": "int32",
+            "description": "The server's id."
+          },
+          "start": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/google.protobuf.Timestamp"
+              }
+            ],
+            "title": "start",
+            "description": "Start of the range, RFC 3339 (for example 2026-10-01T00:00:00Z). Defaults\n to 24 hours before end. Must be on or after 2000-01-01."
+          },
+          "end": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/google.protobuf.Timestamp"
+              }
+            ],
+            "title": "end",
+            "description": "End of the range, RFC 3339. Defaults to now; an end more than 5 minutes\n in the future is treated as now."
+          },
+          "step_seconds": {
+            "type": "integer",
+            "title": "step_seconds",
+            "format": "int32",
+            "description": "Spacing of the points in seconds: default 300, minimum 60. Raised to\n keep every series at or under 1000 points."
+          },
+          "series": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "title": "series",
+            "description": "Which groups to return: cpu, memory, swap, disk, network, connections,\n ports. Repeat the parameter (?series=cpu&series=memory) or separate\n values with commas (?series=cpu,memory). Empty returns every group."
+          }
+        },
+        "title": "GetMetricsRangeRequest",
+        "additionalProperties": false,
+        "description": "Window and series selection of a range query."
+      },
+      "monitorable.api.v1.GetOrganizationRequest": {
+        "type": "object",
+        "title": "GetOrganizationRequest",
+        "additionalProperties": false,
+        "description": "No parameters: the key's organization is implicit."
+      },
+      "monitorable.api.v1.GetServerMetadataRequest": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "id",
+            "format": "int32",
+            "description": "The server's id."
+          }
+        },
+        "title": "GetServerMetadataRequest",
+        "additionalProperties": false,
+        "description": "Identifies the server whose system metadata to read."
+      },
+      "monitorable.api.v1.GetServerRequest": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "id",
+            "format": "int32",
+            "description": "The server's id."
+          }
+        },
+        "title": "GetServerRequest",
+        "additionalProperties": false,
+        "description": "Identifies one server."
+      },
+      "monitorable.api.v1.Incident": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "id",
+            "format": "int32",
+            "description": "The incident's id."
+          },
+          "server_id": {
+            "type": "integer",
+            "title": "server_id",
+            "format": "int32",
+            "description": "The server the incident concerns."
+          },
+          "server_name": {
+            "type": "string",
+            "title": "server_name",
+            "description": "The server's display name."
+          },
+          "rule_type": {
+            "type": "string",
+            "title": "rule_type",
+            "description": "The rule that produced it, e.g. cpu_usage, memory_usage, disk_usage,\n agent_offline."
+          },
+          "entity": {
+            "type": "string",
+            "title": "entity",
+            "description": "What the rule concerns when it is not the whole server (a mount point or\n network interface). Empty for server-wide rules."
+          },
+          "state": {
+            "type": "string",
+            "title": "state",
+            "description": "pending (breaching, not yet confirmed), firing, or resolved."
+          },
+          "value": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "title": "value",
+            "format": "double",
+            "description": "The measured value at the last evaluation, in the rule's unit. Omitted\n when the rule has no value (agent_offline)."
+          },
+          "threshold": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "title": "threshold",
+            "format": "double",
+            "description": "The threshold the rule compares against, in the rule's unit. Omitted when\n the rule has none."
+          },
+          "window_minutes": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "title": "window_minutes",
+            "format": "int32",
+            "description": "How many minutes the breach must hold. Omitted when the rule has no\n window."
+          },
+          "started_at": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/google.protobuf.Timestamp"
+              }
+            ],
+            "title": "started_at",
+            "description": "When the breach began."
+          },
+          "fired_at": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/google.protobuf.Timestamp"
+              }
+            ],
+            "title": "fired_at",
+            "description": "When the incident started firing. null while pending."
+          },
+          "resolved_at": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/google.protobuf.Timestamp"
+              }
+            ],
+            "title": "resolved_at",
+            "description": "When the incident resolved. null until it does."
+          },
+          "acked_at": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/google.protobuf.Timestamp"
+              }
+            ],
+            "title": "acked_at",
+            "description": "When it was acknowledged. null until it is."
+          },
+          "acked_by": {
+            "type": "string",
+            "title": "acked_by",
+            "description": "Who acknowledged it: the API key's name when acked_by_api_key is true,\n else the user's name (or email). Empty when not acknowledged."
+          },
+          "acked_by_api_key": {
+            "type": "boolean",
+            "title": "acked_by_api_key",
+            "description": "True when an API key acknowledged the incident, not a user."
+          },
+          "escalated_at": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/google.protobuf.Timestamp"
+              }
+            ],
+            "title": "escalated_at",
+            "description": "When the unacknowledged-escalation notification went out. null until it\n has."
+          },
+          "last_notified_at": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/google.protobuf.Timestamp"
+              }
+            ],
+            "title": "last_notified_at",
+            "description": "When a notification for this incident was last sent. null until one has."
+          },
+          "resolve_reason": {
+            "type": "string",
+            "title": "resolve_reason",
+            "description": "Why it resolved. Empty until it does."
+          },
+          "reminders_sent": {
+            "type": "integer",
+            "title": "reminders_sent",
+            "format": "int32",
+            "description": "How many reminders were sent while it stayed unacknowledged."
+          },
+          "description": {
+            "type": "string",
+            "title": "description",
+            "description": "A one-sentence description of the incident."
+          },
+          "server_muted": {
+            "type": "boolean",
+            "title": "server_muted",
+            "description": "True while the server's alerts are muted."
+          }
+        },
+        "title": "Incident",
+        "additionalProperties": false,
+        "description": "One incident."
+      },
+      "monitorable.api.v1.IncidentDetail": {
+        "type": "object",
+        "properties": {
+          "incident": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/monitorable.api.v1.Incident"
+              }
+            ],
+            "title": "incident",
+            "description": "The incident."
+          },
+          "deliveries": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/monitorable.api.v1.Delivery"
+            },
+            "title": "deliveries",
+            "description": "The notification attempts, oldest first (at most 200). Empty when none\n were sent."
+          }
+        },
+        "title": "IncidentDetail",
+        "additionalProperties": false,
+        "description": "An incident with the notifications sent for it."
+      },
+      "monitorable.api.v1.Limit": {
+        "type": "object",
+        "properties": {
+          "unlimited": {
+            "type": "boolean",
+            "title": "unlimited",
+            "description": "True when the plan sets no limit; count is then 0."
+          },
+          "count": {
+            "type": "integer",
+            "title": "count",
+            "format": "int32",
+            "description": "The limit, when not unlimited."
+          }
+        },
+        "title": "Limit",
+        "additionalProperties": false,
+        "description": "A count limit of the organization's plan."
+      },
+      "monitorable.api.v1.ListChannelsRequest": {
+        "type": "object",
+        "title": "ListChannelsRequest",
+        "additionalProperties": false,
+        "description": "Lists channels; takes no arguments."
+      },
+      "monitorable.api.v1.ListChannelsResponse": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/monitorable.api.v1.NotificationChannel"
+            },
+            "title": "data",
+            "description": "The channels."
+          }
+        },
+        "title": "ListChannelsResponse",
+        "additionalProperties": false,
+        "description": "The organization's notification channels."
+      },
+      "monitorable.api.v1.ListIncidentsRequest": {
+        "type": "object",
+        "properties": {
+          "state": {
+            "type": "string",
+            "title": "state",
+            "description": "open (pending or firing, the default), resolved, or all."
+          },
+          "server_id": {
+            "type": "integer",
+            "title": "server_id",
+            "format": "int32",
+            "description": "Only incidents of this server. 0 or omitted means every server."
+          },
+          "since": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/google.protobuf.Timestamp"
+              }
+            ],
+            "title": "since",
+            "description": "Only incidents that started at or after this time, RFC 3339 (for example\n 2026-10-01T00:00:00Z)."
+          },
+          "limit": {
+            "type": "integer",
+            "title": "limit",
+            "format": "int32",
+            "description": "Page size: default 25, at most 100 (larger values are treated as 100)."
+          },
+          "cursor": {
+            "type": "string",
+            "title": "cursor",
+            "description": "The next_cursor of the previous page."
+          }
+        },
+        "title": "ListIncidentsRequest",
+        "additionalProperties": false,
+        "description": "Which incidents to list and which page."
+      },
+      "monitorable.api.v1.ListIncidentsResponse": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/monitorable.api.v1.Incident"
+            },
+            "title": "data",
+            "description": "The incidents of this page, newest first."
+          },
+          "next_cursor": {
+            "type": "string",
+            "title": "next_cursor",
+            "description": "Pass as cursor to fetch the next page. Empty string when this is the last\n page."
+          }
+        },
+        "title": "ListIncidentsResponse",
+        "additionalProperties": false,
+        "description": "One page of incidents."
+      },
+      "monitorable.api.v1.ListMembersRequest": {
+        "type": "object",
+        "title": "ListMembersRequest",
+        "additionalProperties": false,
+        "description": "No parameters: the key's organization is implicit."
+      },
+      "monitorable.api.v1.ListMembersResponse": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/monitorable.api.v1.Member"
+            },
+            "title": "data"
+          }
+        },
+        "title": "ListMembersResponse",
+        "additionalProperties": false,
+        "description": "The organization's members."
+      },
+      "monitorable.api.v1.ListServerContainersRequest": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "id",
+            "format": "int32",
+            "description": "The server's id."
+          }
+        },
+        "title": "ListServerContainersRequest",
+        "additionalProperties": false,
+        "description": "Identifies the server whose containers to list."
+      },
+      "monitorable.api.v1.ListServerContainersResponse": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/monitorable.api.v1.Container"
+            },
+            "title": "data",
+            "description": "One entry per container."
+          }
+        },
+        "title": "ListServerContainersResponse",
+        "additionalProperties": false,
+        "description": "The server's Docker containers."
+      },
+      "monitorable.api.v1.ListServerDisksRequest": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "id",
+            "format": "int32",
+            "description": "The server's id."
+          }
+        },
+        "title": "ListServerDisksRequest",
+        "additionalProperties": false,
+        "description": "Identifies the server whose disks to list."
+      },
+      "monitorable.api.v1.ListServerDisksResponse": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/monitorable.api.v1.Disk"
+            },
+            "title": "data",
+            "description": "One entry per disk."
+          }
+        },
+        "title": "ListServerDisksResponse",
+        "additionalProperties": false,
+        "description": "The server's physical disks."
+      },
+      "monitorable.api.v1.ListServerPortsRequest": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "id",
+            "format": "int32",
+            "description": "The server's id."
+          }
+        },
+        "title": "ListServerPortsRequest",
+        "additionalProperties": false,
+        "description": "Identifies the server whose listening ports to list."
+      },
+      "monitorable.api.v1.ListServerPortsResponse": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/monitorable.api.v1.ListeningPort"
+            },
+            "title": "data",
+            "description": "One entry per port."
+          },
+          "snapshot": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/monitorable.api.v1.PortSnapshot"
+              }
+            ],
+            "title": "snapshot",
+            "description": "The snapshot the ports came from. Always present; received_at is null\n when the server has no port snapshot (an agent that predates port\n reporting, or the feature is off)."
+          }
+        },
+        "title": "ListServerPortsResponse",
+        "additionalProperties": false,
+        "description": "The server's listening ports."
+      },
+      "monitorable.api.v1.ListServerServicesRequest": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "id",
+            "format": "int32",
+            "description": "The server's id."
+          }
+        },
+        "title": "ListServerServicesRequest",
+        "additionalProperties": false,
+        "description": "Identifies the server whose systemd services to list."
+      },
+      "monitorable.api.v1.ListServerServicesResponse": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/monitorable.api.v1.Service"
+            },
+            "title": "data",
+            "description": "One entry per service."
+          }
+        },
+        "title": "ListServerServicesResponse",
+        "additionalProperties": false,
+        "description": "The server's systemd services."
+      },
+      "monitorable.api.v1.ListServersRequest": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "title": "status",
+            "description": "Return only servers with this liveness: online, stale, offline or\n dormant; any other value is a 400. Empty returns every server."
+          },
+          "q": {
+            "type": "string",
+            "title": "q",
+            "description": "Return only servers whose name contains this text, ignoring case."
+          },
+          "limit": {
+            "type": "integer",
+            "title": "limit",
+            "format": "int32",
+            "description": "Page size: 1-100, default 25; values above 100 are clamped to 100."
+          },
+          "cursor": {
+            "type": "string",
+            "title": "cursor",
+            "description": "The next_cursor of the previous page. Empty for the first page."
+          }
+        },
+        "title": "ListServersRequest",
+        "additionalProperties": false,
+        "description": "Filters and paging for the server list."
+      },
+      "monitorable.api.v1.ListServersResponse": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/monitorable.api.v1.Server"
+            },
+            "title": "data",
+            "description": "The servers of this page, ordered by id ascending."
+          },
+          "next_cursor": {
+            "type": "string",
+            "title": "next_cursor",
+            "description": "Pass as cursor to fetch the next page. Empty string when this is the last\n page."
+          }
+        },
+        "title": "ListServersResponse",
+        "additionalProperties": false,
+        "description": "One page of servers."
+      },
+      "monitorable.api.v1.ListTemplatesRequest": {
+        "type": "object",
+        "title": "ListTemplatesRequest",
+        "additionalProperties": false,
+        "description": "Lists templates; takes no arguments."
+      },
+      "monitorable.api.v1.ListTemplatesResponse": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/monitorable.api.v1.AlertTemplate"
+            },
+            "title": "data",
+            "description": "The templates. The default template is created on first use, so the list\n is never empty."
+          }
+        },
+        "title": "ListTemplatesResponse",
+        "additionalProperties": false,
+        "description": "The organization's alert templates."
+      },
+      "monitorable.api.v1.ListeningPort": {
+        "type": "object",
+        "properties": {
+          "port": {
+            "type": "integer",
+            "title": "port",
+            "format": "int32",
+            "description": "The port number."
+          },
+          "service": {
+            "type": "string",
+            "title": "service",
+            "description": "The process or service name listening. Empty when unknown."
+          },
+          "scope": {
+            "type": "string",
+            "title": "scope",
+            "description": "local when bound to a loopback address, exposed when reachable from the\n network. Empty when unknown."
+          },
+          "families": {
+            "type": "string",
+            "title": "families",
+            "description": "Address families listening: v4, v6 or dual. Empty when unknown."
+          },
+          "conn_avg": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "title": "conn_avg",
+            "format": "double",
+            "description": "Average open connections over the recent window. Omitted when not\n measured."
+          },
+          "conn_peak": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "title": "conn_peak",
+            "format": "int32",
+            "description": "Peak open connections over the recent window. Omitted when not measured."
+          },
+          "first_seen_at": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/google.protobuf.Timestamp"
+              }
+            ],
+            "title": "first_seen_at",
+            "description": "When the port was first seen listening."
+          },
+          "last_seen_at": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/google.protobuf.Timestamp"
+              }
+            ],
+            "title": "last_seen_at",
+            "description": "When the port was last seen listening."
+          },
+          "missing_since": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/google.protobuf.Timestamp"
+              }
+            ],
+            "title": "missing_since",
+            "description": "When the port stopped listening. null while it is listening."
+          }
+        },
+        "title": "ListeningPort",
+        "additionalProperties": false,
+        "description": "A port the server listens on."
+      },
+      "monitorable.api.v1.Me": {
+        "type": "object",
+        "properties": {
+          "key_id": {
+            "type": "integer",
+            "title": "key_id",
+            "format": "int32",
+            "description": "The key's id, as listed in the dashboard."
+          },
+          "key_name": {
+            "type": "string",
+            "title": "key_name",
+            "description": "The name given to the key at creation."
+          },
+          "scopes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "title": "scopes",
+            "description": "The key's scopes, e.g. \"servers:read\"."
+          },
+          "role": {
+            "type": "string",
+            "title": "role",
+            "description": "\"admin\" or \"member\": the most the key can do, narrowed by its scopes."
+          },
+          "organization_id": {
+            "type": "integer",
+            "title": "organization_id",
+            "format": "int32",
+            "description": "The organization the key belongs to."
+          },
+          "organization_name": {
+            "type": "string",
+            "title": "organization_name",
+            "description": "The organization's name."
+          },
+          "plan_name": {
+            "type": "string",
+            "title": "plan_name",
+            "description": "The organization's plan, e.g. \"Pro\". Empty when billing is not enabled."
+          },
+          "expires_at": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/google.protobuf.Timestamp"
+              }
+            ],
+            "title": "expires_at",
+            "description": "When the key stops working; null for a key that never expires."
+          }
+        },
+        "title": "Me",
+        "additionalProperties": false,
+        "description": "The API key making the request."
+      },
+      "monitorable.api.v1.Member": {
+        "type": "object",
+        "properties": {
+          "user_id": {
+            "type": "integer",
+            "title": "user_id",
+            "format": "int32"
+          },
+          "name": {
+            "type": "string",
+            "title": "name"
+          },
+          "email": {
+            "type": "string",
+            "title": "email",
+            "description": "Empty unless the calling key has the admin role."
+          },
+          "role": {
+            "type": "string",
+            "title": "role",
+            "description": "\"owner\", \"admin\" or \"member\"."
+          },
+          "joined_at": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/google.protobuf.Timestamp"
+              }
+            ],
+            "title": "joined_at"
+          }
+        },
+        "title": "Member",
+        "additionalProperties": false,
+        "description": "A member of the organization."
+      },
+      "monitorable.api.v1.MetricsRange": {
+        "type": "object",
+        "properties": {
+          "server_id": {
+            "type": "integer",
+            "title": "server_id",
+            "format": "int32",
+            "description": "The server's id."
+          },
+          "start": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/google.protobuf.Timestamp"
+              }
+            ],
+            "title": "start",
+            "description": "The start of the range returned: the requested start, or the server's\n first data point when that is later."
+          },
+          "end": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/google.protobuf.Timestamp"
+              }
+            ],
+            "title": "end",
+            "description": "The end of the range returned."
+          },
+          "step_seconds": {
+            "type": "integer",
+            "title": "step_seconds",
+            "format": "int32",
+            "description": "The step used, in seconds. This can be larger than the step requested."
+          },
+          "series": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/monitorable.api.v1.Series"
+            },
+            "title": "series",
+            "description": "The series, grouped in the order cpu, memory, swap, disk, network,\n connections, ports; within a group in the order listed in the API\n documentation, and per-device series sorted by device. Empty when the\n requested window holds no data."
+          }
+        },
+        "title": "MetricsRange",
+        "additionalProperties": false,
+        "description": "A range of metrics as named series."
+      },
+      "monitorable.api.v1.MuteServerAlertsRequest": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "id",
+            "format": "int32",
+            "description": "The server's id."
+          },
+          "until": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/google.protobuf.Timestamp"
+              }
+            ],
+            "title": "until",
+            "description": "When the mute ends, RFC 3339 (for example 2026-11-04T06:00:00Z). Omit to\n mute until lifted. Must be in the future and at most 366 days ahead."
+          },
+          "reason": {
+            "type": "string",
+            "title": "reason",
+            "description": "Why the server is muted, shown in the dashboard. At most 200 characters,\n no control characters. Optional."
+          }
+        },
+        "title": "MuteServerAlertsRequest",
+        "additionalProperties": false,
+        "description": "Which server to mute and for how long."
+      },
+      "monitorable.api.v1.MuteState": {
+        "type": "object",
+        "properties": {
+          "server_id": {
+            "type": "integer",
+            "title": "server_id",
+            "format": "int32",
+            "description": "The server's id."
+          },
+          "muted": {
+            "type": "boolean",
+            "title": "muted",
+            "description": "True while the server's alerts are muted."
+          },
+          "until": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/google.protobuf.Timestamp"
+              }
+            ],
+            "title": "until",
+            "description": "When a timed mute ends. null when the mute has no end or the server is\n not muted."
+          },
+          "reason": {
+            "type": "string",
+            "title": "reason",
+            "description": "The reason given for the mute. Empty when none was given or the server is\n not muted."
+          }
+        },
+        "title": "MuteState",
+        "additionalProperties": false,
+        "description": "A server's mute state."
+      },
+      "monitorable.api.v1.NotificationChannel": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "id",
+            "format": "int32",
+            "description": "The channel's id."
+          },
+          "type": {
+            "type": "string",
+            "title": "type",
+            "description": "The channel type, e.g. email, slack, webhook."
+          },
+          "name": {
+            "type": "string",
+            "title": "name",
+            "description": "The channel's name."
+          },
+          "enabled": {
+            "type": "boolean",
+            "title": "enabled",
+            "description": "True when the channel is used for notifications."
+          },
+          "last_delivery_at": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/google.protobuf.Timestamp"
+              }
+            ],
+            "title": "last_delivery_at",
+            "description": "When the channel last delivered (or tried to deliver) a notification.\n null when it never has, or the delivery history could not be read."
+          },
+          "last_delivery_ok": {
+            "type": "boolean",
+            "title": "last_delivery_ok",
+            "description": "True when that delivery succeeded. false when it failed or there is none."
+          }
+        },
+        "title": "NotificationChannel",
+        "additionalProperties": false,
+        "description": "A notification channel. Its settings are never returned."
+      },
+      "monitorable.api.v1.Organization": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "id",
+            "format": "int32"
+          },
+          "name": {
+            "type": "string",
+            "title": "name"
+          },
+          "created_at": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/google.protobuf.Timestamp"
+              }
+            ],
+            "title": "created_at"
+          },
+          "plan_name": {
+            "type": "string",
+            "title": "plan_name",
+            "description": "The plan's display name, e.g. \"Pro\". Empty when billing is not enabled."
+          },
+          "limits": {
+            "type": "object",
+            "title": "limits",
+            "additionalProperties": {
+              "allOf": [
+                {
+                  "$ref": "#/components/schemas/monitorable.api.v1.Limit"
+                }
+              ],
+              "title": "value"
+            },
+            "description": "Count limits of the owner's plan keyed by limit name (e.g. \"max_servers\",\n \"max_api_keys\"). Account-wide: shared by every organization of the\n owner. Empty when billing is not enabled."
+          },
+          "usage": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/monitorable.api.v1.Usage"
+              }
+            ],
+            "title": "usage",
+            "description": "Current usage."
+          }
+        },
+        "title": "Organization",
+        "additionalProperties": false,
+        "description": "The key's organization."
+      },
+      "monitorable.api.v1.PortSnapshot": {
+        "type": "object",
+        "properties": {
+          "received_at": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/google.protobuf.Timestamp"
+              }
+            ],
+            "title": "received_at",
+            "description": "When the report arrived."
+          },
+          "total": {
+            "type": "integer",
+            "title": "total",
+            "format": "int32",
+            "description": "Listening ports on the server."
+          },
+          "detailed": {
+            "type": "integer",
+            "title": "detailed",
+            "format": "int32",
+            "description": "Ports the report described in detail."
+          },
+          "all_ports_truncated": {
+            "type": "boolean",
+            "title": "all_ports_truncated",
+            "description": "True when the server has more ports than the report carried, so the list\n is partial."
+          }
+        },
+        "title": "PortSnapshot",
+        "additionalProperties": false,
+        "description": "The agent report the port list was built from."
+      },
+      "monitorable.api.v1.RotateAgentKeyRequest": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "id",
+            "format": "int32",
+            "description": "The server's id."
+          }
+        },
+        "title": "RotateAgentKeyRequest",
+        "additionalProperties": false,
+        "description": "Identifies the server whose agent key to replace."
+      },
+      "monitorable.api.v1.RotateAgentKeyResponse": {
+        "type": "object",
+        "properties": {
+          "agent_api_key": {
+            "type": "string",
+            "title": "agent_api_key",
+            "description": "The new agent API key. Shown once, never retrievable again."
+          },
+          "install_command": {
+            "type": "string",
+            "title": "install_command",
+            "description": "A shell command that installs the agent with the new key."
+          }
+        },
+        "title": "RotateAgentKeyResponse",
+        "additionalProperties": false,
+        "description": "The replacement agent key."
+      },
+      "monitorable.api.v1.Series": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "name",
+            "description": "The series name, group first: cpu.usage_percent, memory.used_bytes,\n network.rx_bits_per_sec, disk.busy_percent, ports.connections, ..."
+          },
+          "unit": {
+            "type": "string",
+            "title": "unit",
+            "description": "The unit of the values: load, percent, celsius, bytes, bytes_per_sec,\n ops_per_sec, bits_per_sec, packets_per_sec, per_minute (network errors\n and drops per minute), or count (a gauge: connections, ports)."
+          },
+          "device": {
+            "type": "string",
+            "title": "device",
+            "description": "The disk device (sda), mount point (/var) or port (443) of a per-device\n series. The empty string for every other series."
+          },
+          "timestamps": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/google.protobuf.Timestamp"
+            },
+            "title": "timestamps",
+            "description": "The time of each point, ascending. Parallel to values."
+          },
+          "values": {
+            "type": "array",
+            "items": {
+              "type": "number",
+              "format": "double"
+            },
+            "title": "values",
+            "description": "The value of each point, in unit. Parallel to timestamps."
+          }
+        },
+        "title": "Series",
+        "additionalProperties": false,
+        "description": "One named series of points."
+      },
+      "monitorable.api.v1.Server": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "id",
+            "format": "int32",
+            "description": "The server's id."
+          },
+          "name": {
+            "type": "string",
+            "title": "name",
+            "description": "The server's display name."
+          },
+          "status": {
+            "type": "string",
+            "title": "status",
+            "description": "Liveness from the last data received: online, stale, offline or dormant."
+          },
+          "triage": {
+            "type": "string",
+            "title": "triage",
+            "description": "Triage tier: needs_attention (an unacknowledged firing incident),\n acknowledged, unreachable (not online, no incident), healthy or dormant."
+          },
+          "last_seen_at": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/google.protobuf.Timestamp"
+              }
+            ],
+            "title": "last_seen_at",
+            "description": "When the agent last reported. null if it never has."
+          },
+          "created_at": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/google.protobuf.Timestamp"
+              }
+            ],
+            "title": "created_at",
+            "description": "When the server was registered."
+          },
+          "ip": {
+            "type": "string",
+            "title": "ip",
+            "description": "The address Monitorable sees the agent connect from: the IPv4 when known,\n else the IPv6. Empty until the agent first reports."
+          },
+          "ipv4": {
+            "type": "string",
+            "title": "ipv4",
+            "description": "The IPv4 address Monitorable sees the agent connect from."
+          },
+          "ipv6": {
+            "type": "string",
+            "title": "ipv6",
+            "description": "The IPv6 address Monitorable sees the agent connect from."
+          },
+          "location": {
+            "type": "string",
+            "title": "location",
+            "description": "Country of the address, e.g. \"Germany\". Empty when unknown."
+          },
+          "country_code": {
+            "type": "string",
+            "title": "country_code",
+            "description": "Lowercase ISO 3166-1 alpha-2 country code of the address. Empty when\n unknown."
+          },
+          "agent_version": {
+            "type": "string",
+            "title": "agent_version",
+            "description": "The agent version the server reports, e.g. \"1.6.0\". Empty if unknown."
+          },
+          "uptime_seconds": {
+            "type": "number",
+            "title": "uptime_seconds",
+            "format": "double",
+            "description": "Seconds since the server booted, as last reported."
+          },
+          "alerts_muted": {
+            "type": "boolean",
+            "title": "alerts_muted",
+            "description": "True while alerts for this server are muted (indefinitely or until a set\n time that has not passed)."
+          },
+          "alerts_muted_until": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/google.protobuf.Timestamp"
+              }
+            ],
+            "title": "alerts_muted_until",
+            "description": "When a timed mute ends. null for an indefinite mute or when not muted."
+          },
+          "alerts_muted_reason": {
+            "type": "string",
+            "title": "alerts_muted_reason",
+            "description": "The reason given for the mute. Empty when not muted."
+          },
+          "alert_template_id": {
+            "type": "integer",
+            "title": "alert_template_id",
+            "format": "int32",
+            "description": "The alert template assigned to the server; 0 means the organization's\n default template."
+          },
+          "open_incidents": {
+            "type": "integer",
+            "title": "open_incidents",
+            "format": "int32",
+            "description": "Incidents on this server that are not resolved, pending and acknowledged\n ones included. 0 while a mute holds them back."
+          },
+          "unacked_firing": {
+            "type": "integer",
+            "title": "unacked_firing",
+            "format": "int32",
+            "description": "Firing incidents on this server nobody has acknowledged. 0 while a mute\n holds them back."
+          },
+          "created_via": {
+            "type": "string",
+            "title": "created_via",
+            "description": "How the server was registered: dashboard, api or enroll."
+          }
+        },
+        "title": "Server",
+        "additionalProperties": false,
+        "description": "A monitored server."
+      },
+      "monitorable.api.v1.ServerMetadata": {
+        "type": "object",
+        "properties": {
+          "server_id": {
+            "type": "integer",
+            "title": "server_id",
+            "format": "int32",
+            "description": "The server's id."
+          },
+          "hostname": {
+            "type": "string",
+            "title": "hostname",
+            "description": "The host name."
+          },
+          "os_name": {
+            "type": "string",
+            "title": "os_name",
+            "description": "Operating system name, e.g. \"Ubuntu\"."
+          },
+          "os_version": {
+            "type": "string",
+            "title": "os_version",
+            "description": "Operating system version, e.g. \"24.04\"."
+          },
+          "kernel_version": {
+            "type": "string",
+            "title": "kernel_version",
+            "description": "Kernel version."
+          },
+          "architecture": {
+            "type": "string",
+            "title": "architecture",
+            "description": "CPU architecture, e.g. \"amd64\"."
+          },
+          "cpu_model": {
+            "type": "string",
+            "title": "cpu_model",
+            "description": "CPU model name."
+          },
+          "cpu_cores": {
+            "type": "integer",
+            "title": "cpu_cores",
+            "format": "int32",
+            "description": "Physical CPU cores."
+          },
+          "cpu_threads": {
+            "type": "integer",
+            "title": "cpu_threads",
+            "format": "int32",
+            "description": "Logical CPU threads."
+          },
+          "cpu_frequency_current_mhz": {
+            "type": "number",
+            "title": "cpu_frequency_current_mhz",
+            "format": "double",
+            "description": "Current CPU frequency in MHz."
+          },
+          "cpu_temperature": {
+            "type": "number",
+            "title": "cpu_temperature",
+            "format": "double",
+            "description": "CPU temperature in degrees Celsius; 0 when the server has no readable\n sensor."
+          },
+          "total_ram_bytes": {
+            "type": "number",
+            "title": "total_ram_bytes",
+            "format": "double",
+            "description": "Installed RAM in bytes."
+          },
+          "cloud_provider": {
+            "type": "string",
+            "title": "cloud_provider",
+            "description": "Cloud provider, e.g. \"aws\". Empty off cloud or when unknown."
+          },
+          "instance_id": {
+            "type": "string",
+            "title": "instance_id",
+            "description": "The cloud provider's instance id. Empty when unknown."
+          },
+          "region": {
+            "type": "string",
+            "title": "region",
+            "description": "The cloud region. Empty when unknown."
+          },
+          "uptime_seconds": {
+            "type": "number",
+            "title": "uptime_seconds",
+            "format": "double",
+            "description": "Seconds since the server booted."
+          },
+          "last_boot_time": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/google.protobuf.Timestamp"
+              }
+            ],
+            "title": "last_boot_time",
+            "description": "When the server last booted. null when unknown."
+          },
+          "reboot_required": {
+            "type": "boolean",
+            "title": "reboot_required",
+            "description": "True when the operating system asks for a reboot (pending updates)."
+          },
+          "permission_errors": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "title": "permission_errors",
+            "description": "Codes of the readings the agent could not take for lack of permissions,\n e.g. \"temperature_monitoring_requires_root\"."
+          },
+          "updated_at": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/google.protobuf.Timestamp"
+              }
+            ],
+            "title": "updated_at",
+            "description": "When this metadata was last refreshed."
+          },
+          "agent_version": {
+            "type": "string",
+            "title": "agent_version",
+            "description": "The agent version the server reports. Empty if unknown."
+          }
+        },
+        "title": "ServerMetadata",
+        "additionalProperties": false,
+        "description": "Hardware and operating-system facts reported by the agent."
+      },
+      "monitorable.api.v1.Service": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "name",
+            "description": "The unit name, e.g. \"nginx.service\"."
+          },
+          "state": {
+            "type": "string",
+            "title": "state",
+            "description": "The active state: active, inactive, failed, activating or deactivating."
+          },
+          "sub_state": {
+            "type": "string",
+            "title": "sub_state",
+            "description": "The finer systemd sub-state, e.g. \"running\" or \"dead\"."
+          },
+          "cpu_percent": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "title": "cpu_percent",
+            "format": "double",
+            "description": "CPU use in percent of one core. Omitted when not measured."
+          },
+          "memory_bytes": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "title": "memory_bytes",
+            "format": "double",
+            "description": "Memory in use, in bytes. Omitted when not measured."
+          },
+          "restart_count": {
+            "type": "integer",
+            "title": "restart_count",
+            "format": "int32",
+            "description": "How many times systemd restarted the unit."
+          },
+          "active_since": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/google.protobuf.Timestamp"
+              }
+            ],
+            "title": "active_since",
+            "description": "When the unit last became active. null when it is not active."
+          },
+          "enabled_on_boot": {
+            "type": "boolean",
+            "title": "enabled_on_boot",
+            "description": "True when the unit starts at boot."
+          },
+          "description": {
+            "type": "string",
+            "title": "description",
+            "description": "The unit's description."
+          },
+          "updated_at": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/google.protobuf.Timestamp"
+              }
+            ],
+            "title": "updated_at",
+            "description": "When the agent last reported this unit."
+          }
+        },
+        "title": "Service",
+        "additionalProperties": false,
+        "description": "A systemd service."
+      },
+      "monitorable.api.v1.SetServerAlertTemplateRequest": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "id",
+            "format": "int32",
+            "description": "The server's id."
+          },
+          "template_id": {
+            "type": "integer",
+            "title": "template_id",
+            "format": "int32",
+            "description": "The template's id. 0 means the organization's default template."
+          }
+        },
+        "title": "SetServerAlertTemplateRequest",
+        "additionalProperties": false,
+        "description": "Which server and which template."
+      },
+      "monitorable.api.v1.SetServerAlertTemplateResponse": {
+        "type": "object",
+        "properties": {
+          "server_id": {
+            "type": "integer",
+            "title": "server_id",
+            "format": "int32",
+            "description": "The server's id."
+          },
+          "template_id": {
+            "type": "integer",
+            "title": "template_id",
+            "format": "int32",
+            "description": "The id that was requested: 0 means the server follows the organization's\n default template."
+          }
+        },
+        "title": "SetServerAlertTemplateResponse",
+        "additionalProperties": false,
+        "description": "The assignment that was made."
+      },
+      "monitorable.api.v1.UnacknowledgeIncidentRequest": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "id",
+            "format": "int32",
+            "description": "The incident's id."
+          }
+        },
+        "title": "UnacknowledgeIncidentRequest",
+        "additionalProperties": false,
+        "description": "Which incident to un-acknowledge."
+      },
+      "monitorable.api.v1.UnmuteServerAlertsRequest": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "id",
+            "format": "int32",
+            "description": "The server's id."
+          }
+        },
+        "title": "UnmuteServerAlertsRequest",
+        "additionalProperties": false,
+        "description": "Which server to unmute."
+      },
+      "monitorable.api.v1.UpdateServerRequest": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "id",
+            "format": "int32",
+            "description": "The server's id."
+          },
+          "name": {
+            "type": "string",
+            "title": "name",
+            "description": "The new display name."
+          }
+        },
+        "title": "UpdateServerRequest",
+        "additionalProperties": false,
+        "description": "The new name for a server."
+      },
+      "monitorable.api.v1.Usage": {
+        "type": "object",
+        "properties": {
+          "servers": {
+            "type": "integer",
+            "title": "servers",
+            "format": "int32",
+            "description": "Servers in this organization."
+          },
+          "members": {
+            "type": "integer",
+            "title": "members",
+            "format": "int32",
+            "description": "Members of the organization."
+          },
+          "pending_invitations": {
+            "type": "integer",
+            "title": "pending_invitations",
+            "format": "int32",
+            "description": "Invitations sent and not yet accepted."
+          },
+          "api_keys": {
+            "type": "integer",
+            "title": "api_keys",
+            "format": "int32",
+            "description": "API keys not revoked."
+          },
+          "alert_templates": {
+            "type": "integer",
+            "title": "alert_templates",
+            "format": "int32",
+            "description": "Alert templates of this organization."
+          },
+          "notification_channels": {
+            "type": "integer",
+            "title": "notification_channels",
+            "format": "int32",
+            "description": "Notification channels of this organization."
+          }
+        },
+        "title": "Usage",
+        "additionalProperties": false,
+        "description": "What this organization currently uses. Every count is this organization's\n alone; the plan limits are the owner's and are shared by all of the owner's\n organizations."
+      }
+    },
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "mon_live_…"
+      }
+    }
+  },
+  "security": [
+    {
+      "bearerAuth": []
+    }
+  ],
+  "paths": {
+    "/v1/agent/commands": {
+      "get": {
+        "tags": [
+          "monitorable.api.v1.AgentService"
+        ],
+        "summary": "GetCommands",
+        "description": "The shell commands that update and uninstall the agent on a host. They\n carry no key and no tenant data, so any key may read them.",
+        "operationId": "monitorable.api.v1.AgentService.GetCommands",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/monitorable.api.v1.AgentCommands"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          }
+        }
+      }
+    },
+    "/v1/alert-templates": {
+      "get": {
+        "tags": [
+          "monitorable.api.v1.AlertsService"
+        ],
+        "summary": "ListTemplates",
+        "description": "Lists the organization's alert templates with their rules, creating the\n default template on first use. Requires alerts:read.",
+        "operationId": "monitorable.api.v1.AlertsService.ListTemplates",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/monitorable.api.v1.ListTemplatesResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          }
+        }
+      }
+    },
+    "/v1/enroll": {
+      "post": {
+        "tags": [
+          "monitorable.api.v1.EnrollService"
+        ],
+        "summary": "Enroll",
+        "description": "Enroll creates a server for this host, or — when server_ref names a server\n this organization already has — rotates that server's agent key and keeps\n the row. Answers 201 when it created a server and 200 when it rotated the\n key of an existing one. Requires the servers:enroll scope and an\n admin-role key. Idempotency-Key is ignored: server_ref is the retry handle.",
+        "operationId": "monitorable.api.v1.EnrollService.Enroll",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/monitorable.api.v1.EnrollRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Re-enrolled: server_ref matched an existing server, whose agent key was rotated; agent_api_key is shown once.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/monitorable.api.v1.EnrollResponse"
+                }
+              }
+            }
+          },
+          "201": {
+            "description": "Created: a new server; agent_api_key is shown once.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/monitorable.api.v1.EnrollResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "402": {
+            "$ref": "#/components/responses/PaymentRequired"
+          }
+        }
+      }
+    },
+    "/v1/incidents": {
+      "get": {
+        "tags": [
+          "monitorable.api.v1.IncidentsService"
+        ],
+        "summary": "List",
+        "description": "Lists incidents, newest first (by start time, then id). Only open\n incidents (pending or firing) are listed unless state says otherwise.\n Page with limit and cursor. Requires alerts:read.",
+        "operationId": "monitorable.api.v1.IncidentsService.List",
+        "parameters": [
+          {
+            "name": "state",
+            "in": "query",
+            "description": "open (pending or firing, the default), resolved, or all.",
+            "schema": {
+              "type": "string",
+              "title": "state"
+            }
+          },
+          {
+            "name": "server_id",
+            "in": "query",
+            "description": "Only incidents of this server. 0 or omitted means every server.",
+            "schema": {
+              "type": "integer",
+              "title": "server_id",
+              "format": "int32"
+            }
+          },
+          {
+            "name": "since",
+            "in": "query",
+            "description": "Only incidents that started at or after this time, RFC 3339 (for example\n 2026-10-01T00:00:00Z).",
+            "schema": {
+              "type": "string",
+              "examples": [
+                "2023-01-15T01:30:15.01Z",
+                "2024-12-25T12:00:00Z"
+              ],
+              "format": "date-time"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Page size: default 25, at most 100 (larger values are treated as 100).",
+            "schema": {
+              "type": "integer",
+              "title": "limit",
+              "format": "int32"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "description": "The next_cursor of the previous page.",
+            "schema": {
+              "type": "string",
+              "title": "cursor"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/monitorable.api.v1.ListIncidentsResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      }
+    },
+    "/v1/incidents/{id}": {
+      "get": {
+        "tags": [
+          "monitorable.api.v1.IncidentsService"
+        ],
+        "summary": "Get",
+        "description": "One incident with the notifications sent for it, oldest first (at most\n 200). Requires alerts:read.",
+        "operationId": "monitorable.api.v1.IncidentsService.Get",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The incident's id.",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "id",
+              "format": "int32"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/monitorable.api.v1.IncidentDetail"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      }
+    },
+    "/v1/incidents/{id}:acknowledge": {
+      "post": {
+        "tags": [
+          "monitorable.api.v1.IncidentsService"
+        ],
+        "summary": "Acknowledge",
+        "description": "Acknowledges an open incident on behalf of the API key, which the\n dashboard shows as \"(API key)\". Acknowledging an incident that is already\n acknowledged answers 200 with the incident unchanged. A resolved incident\n answers 409 incident_resolved. Requires alerts:write and an admin-role key.",
+        "operationId": "monitorable.api.v1.IncidentsService.Acknowledge",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The incident's id.",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "id",
+              "format": "int32"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/monitorable.api.v1.Incident"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          }
+        }
+      }
+    },
+    "/v1/incidents/{id}:unacknowledge": {
+      "post": {
+        "tags": [
+          "monitorable.api.v1.IncidentsService"
+        ],
+        "summary": "Unacknowledge",
+        "description": "Withdraws an acknowledgement, whoever made it, so reminders resume.\n Un-acknowledging an incident that is not acknowledged answers 200 with the\n incident unchanged. A resolved incident answers 409 incident_resolved.\n Requires alerts:write and an admin-role key.",
+        "operationId": "monitorable.api.v1.IncidentsService.Unacknowledge",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The incident's id.",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "id",
+              "format": "int32"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/monitorable.api.v1.Incident"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          }
+        }
+      }
+    },
+    "/v1/me": {
+      "get": {
+        "tags": [
+          "monitorable.api.v1.AccountService"
+        ],
+        "summary": "GetMe",
+        "description": "The calling key: name, scopes, role, organization and plan. Any key.",
+        "operationId": "monitorable.api.v1.AccountService.GetMe",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/monitorable.api.v1.Me"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          }
+        }
+      }
+    },
+    "/v1/notification-channels": {
+      "get": {
+        "tags": [
+          "monitorable.api.v1.AlertsService"
+        ],
+        "summary": "ListChannels",
+        "description": "Lists the organization's notification channels with the outcome of their\n latest delivery. A channel's settings (URLs, tokens, addresses) are never\n returned. Requires alerts:read.",
+        "operationId": "monitorable.api.v1.AlertsService.ListChannels",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/monitorable.api.v1.ListChannelsResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          }
+        }
+      }
+    },
+    "/v1/organization": {
+      "get": {
+        "tags": [
+          "monitorable.api.v1.AccountService"
+        ],
+        "summary": "GetOrganization",
+        "description": "The key's organization with its plan limits and current usage. Requires\n account:read.",
+        "operationId": "monitorable.api.v1.AccountService.GetOrganization",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/monitorable.api.v1.Organization"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          }
+        }
+      }
+    },
+    "/v1/organization/members": {
+      "get": {
+        "tags": [
+          "monitorable.api.v1.AccountService"
+        ],
+        "summary": "ListMembers",
+        "description": "Members of the key's organization. Requires account:read.",
+        "operationId": "monitorable.api.v1.AccountService.ListMembers",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/monitorable.api.v1.ListMembersResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          }
+        }
+      }
+    },
+    "/v1/servers": {
+      "get": {
+        "tags": [
+          "monitorable.api.v1.ServersService"
+        ],
+        "summary": "List",
+        "description": "Lists the organization's servers, oldest id first, with their liveness and\n triage state. Requires servers:read.",
+        "operationId": "monitorable.api.v1.ServersService.List",
+        "parameters": [
+          {
+            "name": "status",
+            "in": "query",
+            "description": "Return only servers with this liveness: online, stale, offline or\n dormant; any other value is a 400. Empty returns every server.",
+            "schema": {
+              "type": "string",
+              "title": "status"
+            }
+          },
+          {
+            "name": "q",
+            "in": "query",
+            "description": "Return only servers whose name contains this text, ignoring case.",
+            "schema": {
+              "type": "string",
+              "title": "q"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Page size: 1-100, default 25; values above 100 are clamped to 100.",
+            "schema": {
+              "type": "integer",
+              "title": "limit",
+              "format": "int32"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "description": "The next_cursor of the previous page. Empty for the first page.",
+            "schema": {
+              "type": "string",
+              "title": "cursor"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/monitorable.api.v1.ListServersResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "monitorable.api.v1.ServersService"
+        ],
+        "summary": "Create",
+        "description": "Registers a new server and returns its agent key, shown once, with the\n install command. Answers 201. Requires servers:write and an admin-role\n key. Send an Idempotency-Key header (at most 64 characters) to make\n retries safe: a retry with the same key and name answers 200 with the same\n server, without the key (see recovery), and creates nothing. While the\n first request is still running, a retry with the same key answers 503\n idempotency_unavailable: wait a moment and retry.",
+        "operationId": "monitorable.api.v1.ServersService.Create",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/monitorable.api.v1.CreateServerRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Idempotency-Key replay: same server; agent_api_key and install_command omitted; recovery set",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/monitorable.api.v1.CreateServerResponse"
+                }
+              }
+            }
+          },
+          "201": {
+            "description": "Created. agent_api_key and install_command are shown once.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/monitorable.api.v1.CreateServerResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "402": {
+            "$ref": "#/components/responses/PaymentRequired"
+          },
+          "422": {
+            "$ref": "#/components/responses/UnprocessableEntity"
+          },
+          "503": {
+            "$ref": "#/components/responses/ServiceUnavailable"
+          }
+        },
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "description": "A client-chosen key of at most 64 characters. Replays with the same key and body within 24 h answer 200 with the same server and no key material.",
+            "schema": {
+              "type": "string",
+              "maxLength": 64
+            }
+          }
+        ]
+      }
+    },
+    "/v1/servers/{id}": {
+      "get": {
+        "tags": [
+          "monitorable.api.v1.ServersService"
+        ],
+        "summary": "Get",
+        "description": "One server: the same row List returns. Requires servers:read.",
+        "operationId": "monitorable.api.v1.ServersService.Get",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The server's id.",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "id",
+              "format": "int32"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/monitorable.api.v1.Server"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "monitorable.api.v1.ServersService"
+        ],
+        "summary": "Delete",
+        "description": "Deletes a server and its data. Answers 204 with no body. Requires\n servers:write and an admin-role key.",
+        "operationId": "monitorable.api.v1.ServersService.Delete",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The server's id.",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "id",
+              "format": "int32"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Deleted; no body."
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "monitorable.api.v1.ServersService"
+        ],
+        "summary": "Update",
+        "description": "Renames a server. Requires servers:write and an admin-role key.",
+        "operationId": "monitorable.api.v1.ServersService.Update",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The server's id.",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "id",
+              "format": "int32"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "title": "name",
+                    "description": "The new display name."
+                  }
+                },
+                "title": "UpdateServerRequest",
+                "additionalProperties": false,
+                "description": "The new name for a server."
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/monitorable.api.v1.Server"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      }
+    },
+    "/v1/servers/{id}/agent-key:rotate": {
+      "post": {
+        "tags": [
+          "monitorable.api.v1.ServersService"
+        ],
+        "summary": "RotateAgentKey",
+        "description": "Replaces the server's agent key and returns the new one, shown once, with\n the install command. The old key stops working. Requires servers:write and\n an admin-role key.",
+        "operationId": "monitorable.api.v1.ServersService.RotateAgentKey",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The server's id.",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "id",
+              "format": "int32"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/monitorable.api.v1.RotateAgentKeyResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      }
+    },
+    "/v1/servers/{id}/alert-template": {
+      "put": {
+        "tags": [
+          "monitorable.api.v1.AlertsService"
+        ],
+        "summary": "SetServerAlertTemplate",
+        "description": "Assigns an alert template to a server. A template_id of 0 resets the\n server to the organization's default template. An unknown template (or\n one of another organization) answers 404. Requires alerts:write and an\n admin-role key.",
+        "operationId": "monitorable.api.v1.AlertsService.SetServerAlertTemplate",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The server's id.",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "id",
+              "format": "int32"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "template_id": {
+                    "type": "integer",
+                    "title": "template_id",
+                    "format": "int32",
+                    "description": "The template's id. 0 means the organization's default template."
+                  }
+                },
+                "title": "SetServerAlertTemplateRequest",
+                "additionalProperties": false,
+                "description": "Which server and which template."
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/monitorable.api.v1.SetServerAlertTemplateResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      }
+    },
+    "/v1/servers/{id}/alerts:mute": {
+      "post": {
+        "tags": [
+          "monitorable.api.v1.AlertsService"
+        ],
+        "summary": "MuteServerAlerts",
+        "description": "Mutes a server's alerts: incidents still open and still record, but no\n notification is sent while the mute lasts. Without until the mute lasts\n until it is lifted; with until it ends then (in the future, at most 366\n days ahead). Muting an already muted server replaces the end and the\n reason. Answers the resulting mute state. Requires alerts:write and an\n admin-role key.",
+        "operationId": "monitorable.api.v1.AlertsService.MuteServerAlerts",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The server's id.",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "id",
+              "format": "int32"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "until": {
+                    "allOf": [
+                      {
+                        "$ref": "#/components/schemas/google.protobuf.Timestamp"
+                      }
+                    ],
+                    "title": "until",
+                    "description": "When the mute ends, RFC 3339 (for example 2026-11-04T06:00:00Z). Omit to\n mute until lifted. Must be in the future and at most 366 days ahead."
+                  },
+                  "reason": {
+                    "type": "string",
+                    "title": "reason",
+                    "description": "Why the server is muted, shown in the dashboard. At most 200 characters,\n no control characters. Optional."
+                  }
+                },
+                "title": "MuteServerAlertsRequest",
+                "additionalProperties": false,
+                "description": "Which server to mute and for how long."
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/monitorable.api.v1.MuteState"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      }
+    },
+    "/v1/servers/{id}/alerts:unmute": {
+      "post": {
+        "tags": [
+          "monitorable.api.v1.AlertsService"
+        ],
+        "summary": "UnmuteServerAlerts",
+        "description": "Lifts a server's mute now. Unmuting a server that is not muted answers\n 200 with muted false. Requires alerts:write and an admin-role key.",
+        "operationId": "monitorable.api.v1.AlertsService.UnmuteServerAlerts",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The server's id.",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "id",
+              "format": "int32"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/monitorable.api.v1.MuteState"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      }
+    },
+    "/v1/servers/{id}/containers": {
+      "get": {
+        "tags": [
+          "monitorable.api.v1.ServersService"
+        ],
+        "summary": "ListContainers",
+        "description": "The Docker containers the agent reported. Requires servers:read.",
+        "operationId": "monitorable.api.v1.ServersService.ListContainers",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The server's id.",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "id",
+              "format": "int32"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/monitorable.api.v1.ListServerContainersResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      }
+    },
+    "/v1/servers/{id}/disks": {
+      "get": {
+        "tags": [
+          "monitorable.api.v1.ServersService"
+        ],
+        "summary": "ListDisks",
+        "description": "The physical disks and their SMART health. Requires servers:read.",
+        "operationId": "monitorable.api.v1.ServersService.ListDisks",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The server's id.",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "id",
+              "format": "int32"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/monitorable.api.v1.ListServerDisksResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      }
+    },
+    "/v1/servers/{id}/metadata": {
+      "get": {
+        "tags": [
+          "monitorable.api.v1.ServersService"
+        ],
+        "summary": "GetMetadata",
+        "description": "Hardware and operating-system facts the agent reported. Requires\n servers:read.",
+        "operationId": "monitorable.api.v1.ServersService.GetMetadata",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The server's id.",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "id",
+              "format": "int32"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/monitorable.api.v1.ServerMetadata"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      }
+    },
+    "/v1/servers/{id}/metrics": {
+      "get": {
+        "tags": [
+          "monitorable.api.v1.MetricsService"
+        ],
+        "summary": "GetRange",
+        "description": "A time range of metrics as named series. start defaults to 24 hours\n before end and end to now; start must be before end. A start older than\n the plan's retention window is refused with 403 range_not_in_plan rather\n than silently shortened. A start before the server's first data point is\n moved up to it. step_seconds defaults to 300, is at least 60, and is\n raised so no series exceeds 1000 points (about span / 1000 seconds,\n rounded up to a whole minute); the step used is returned. Ranges longer\n than 7 days also count against a stricter rate limit.",
+        "operationId": "monitorable.api.v1.MetricsService.GetRange",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The server's id.",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "id",
+              "format": "int32"
+            }
+          },
+          {
+            "name": "start",
+            "in": "query",
+            "description": "Start of the range, RFC 3339 (for example 2026-10-01T00:00:00Z). Defaults\n to 24 hours before end. Must be on or after 2000-01-01.",
+            "schema": {
+              "type": "string",
+              "examples": [
+                "2023-01-15T01:30:15.01Z",
+                "2024-12-25T12:00:00Z"
+              ],
+              "format": "date-time"
+            }
+          },
+          {
+            "name": "end",
+            "in": "query",
+            "description": "End of the range, RFC 3339. Defaults to now; an end more than 5 minutes\n in the future is treated as now.",
+            "schema": {
+              "type": "string",
+              "examples": [
+                "2023-01-15T01:30:15.01Z",
+                "2024-12-25T12:00:00Z"
+              ],
+              "format": "date-time"
+            }
+          },
+          {
+            "name": "step_seconds",
+            "in": "query",
+            "description": "Spacing of the points in seconds: default 300, minimum 60. Raised to\n keep every series at or under 1000 points.",
+            "schema": {
+              "type": "integer",
+              "title": "step_seconds",
+              "format": "int32"
+            }
+          },
+          {
+            "name": "series",
+            "in": "query",
+            "description": "Which groups to return: cpu, memory, swap, disk, network, connections,\n ports. Repeat the parameter (?series=cpu&series=memory) or separate\n values with commas (?series=cpu,memory). Empty returns every group.",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "title": "series"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/monitorable.api.v1.MetricsRange"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      }
+    },
+    "/v1/servers/{id}/metrics/current": {
+      "get": {
+        "tags": [
+          "monitorable.api.v1.MetricsService"
+        ],
+        "summary": "GetCurrent",
+        "description": "The latest value of each headline metric.",
+        "operationId": "monitorable.api.v1.MetricsService.GetCurrent",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The server's id.",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "id",
+              "format": "int32"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/monitorable.api.v1.CurrentMetrics"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      }
+    },
+    "/v1/servers/{id}/ports": {
+      "get": {
+        "tags": [
+          "monitorable.api.v1.ServersService"
+        ],
+        "summary": "ListPorts",
+        "description": "The ports the server listens on, and the snapshot they came from.\n Requires servers:read.",
+        "operationId": "monitorable.api.v1.ServersService.ListPorts",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The server's id.",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "id",
+              "format": "int32"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/monitorable.api.v1.ListServerPortsResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      }
+    },
+    "/v1/servers/{id}/services": {
+      "get": {
+        "tags": [
+          "monitorable.api.v1.ServersService"
+        ],
+        "summary": "ListServices",
+        "description": "The systemd services the agent reported. Requires servers:read.",
+        "operationId": "monitorable.api.v1.ServersService.ListServices",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The server's id.",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "id",
+              "format": "int32"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/monitorable.api.v1.ListServerServicesResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      }
+    }
+  },
+  "tags": [
+    {
+      "name": "monitorable.api.v1.AccountService",
+      "description": "The calling API key, its organization, members, plan, limits and usage."
+    },
+    {
+      "name": "monitorable.api.v1.AgentService",
+      "description": "The commands that update and remove the Monitorable agent on a host."
+    },
+    {
+      "name": "monitorable.api.v1.AlertsService",
+      "description": "Alert muting, templates and channels of the key's organization."
+    },
+    {
+      "name": "monitorable.api.v1.EnrollService",
+      "description": "EnrollService registers the host that calls it."
+    },
+    {
+      "name": "monitorable.api.v1.IncidentsService",
+      "description": "Alert incidents of the key's organization."
+    },
+    {
+      "name": "monitorable.api.v1.MetricsService",
+      "description": "Metric reads for one server of the key's organization. Requires\n metrics:read."
+    },
+    {
+      "name": "monitorable.api.v1.ServersService",
+      "description": "Servers monitored by the key's organization."
+    }
+  ]
+}
