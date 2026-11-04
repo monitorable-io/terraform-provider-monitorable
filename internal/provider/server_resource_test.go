@@ -459,8 +459,9 @@ func TestServerNameValidators(t *testing.T) {
 		{"", false},
 		{"web ", false},
 		{" web", false},
+		{"\tweb", false},
 		{"web\n", false},
-		{" web", false},
+		{"\u00a0web", false}, // NO-BREAK SPACE: strings.TrimSpace trims it too
 		{"web\x00", false},
 		{"we\x00b", false},
 		{"web server", true},
@@ -484,7 +485,11 @@ func TestServerNameValidators(t *testing.T) {
 // returns the response.
 func createDirect(t *testing.T, c *client.Client, name string) *fwresource.CreateResponse {
 	t.Helper()
-	ctx := context.Background()
+	return createDirectCtx(t, context.Background(), c, name)
+}
+
+func createDirectCtx(t *testing.T, ctx context.Context, c *client.Client, name string) *fwresource.CreateResponse {
+	t.Helper()
 	s := serverSchema(t)
 	typ := s.Type().TerraformType(ctx)
 	unknown := tftypes.NewValue(tftypes.String, tftypes.UnknownValue)
@@ -563,5 +568,79 @@ func TestServerCreateDiagnostics(t *testing.T) {
 	}
 	if !limited.State.Raw.IsNull() {
 		t.Errorf("state written after a failed create")
+	}
+}
+
+const orphanHintText = "The server may have been created before the request failed. " +
+	"Check `data \"monitorable_servers\"` or the dashboard and `terraform import` it " +
+	"before applying again, or a second server will be created."
+
+// createError runs a Create that must fail and returns its one error.
+func createError(t *testing.T, ctx context.Context, c *client.Client, name string) diag.Diagnostic {
+	t.Helper()
+	resp := createDirectCtx(t, ctx, c, name)
+	errs := resp.Diagnostics.Errors()
+	if len(errs) != 1 {
+		t.Fatalf("want one error, got %v", resp.Diagnostics)
+	}
+	if errs[0].Summary() != "Creating the server failed" {
+		t.Errorf("summary = %q", errs[0].Summary())
+	}
+	if !resp.State.Raw.IsNull() {
+		t.Errorf("state written after a failed create")
+	}
+	return errs[0]
+}
+
+// A create that fails in a way that may still have created the server says
+// so: a 5xx (a 500 is not retried), a transport error, a cancelled context.
+func TestServerCreateMayHaveCreatedHint(t *testing.T) {
+	t.Run("500", func(t *testing.T) {
+		f := fake.New(fake.Options{})
+		t.Cleanup(f.Close)
+		f.InjectStatusOn("POST", "/v1/servers", 500, 1)
+		d := createError(t, context.Background(), testFakeClient(t, f), "web")
+		if !strings.HasPrefix(d.Detail(), "Internal error (internal): ") || !strings.HasSuffix(d.Detail(), "\n\n"+orphanHintText) {
+			t.Errorf("detail = %q", d.Detail())
+		}
+		if n := len(createPosts(f)); n != 1 {
+			t.Errorf("POST /v1/servers sent %d times, want 1 (a 500 is final)", n)
+		}
+	})
+	t.Run("transport", func(t *testing.T) {
+		f := fake.New(fake.Options{})
+		c := testFakeClient(t, f)
+		f.Close() // nothing listens any more: every attempt is a connection error
+		d := createError(t, context.Background(), c, "web")
+		if !strings.HasSuffix(d.Detail(), "\n\n"+orphanHintText) {
+			t.Errorf("detail = %q", d.Detail())
+		}
+	})
+	t.Run("cancelled", func(t *testing.T) {
+		f := fake.New(fake.Options{})
+		t.Cleanup(f.Close)
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+		d := createError(t, ctx, testFakeClient(t, f), "web")
+		if !strings.HasSuffix(d.Detail(), "\n\n"+orphanHintText) {
+			t.Errorf("detail = %q", d.Detail())
+		}
+	})
+}
+
+// A 4xx is a refusal: nothing was created, so there is no hint.
+func TestServerCreateRefusalHasNoHint(t *testing.T) {
+	f := fake.New(fake.Options{})
+	t.Cleanup(f.Close)
+	// Bypasses the schema validators: the API itself answers 400.
+	d := createError(t, context.Background(), testFakeClient(t, f), "")
+	if !strings.HasPrefix(d.Detail(), "Invalid argument (invalid_argument): ") {
+		t.Errorf("detail = %q, want the API's 400", d.Detail())
+	}
+	if strings.Contains(d.Detail(), "may have been created") {
+		t.Errorf("a 400 got the may-have-been-created hint: %q", d.Detail())
+	}
+	if n := len(f.Servers()); n != 0 {
+		t.Errorf("%d servers exist, want 0", n)
 	}
 }

@@ -2,6 +2,7 @@ package provider
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -128,7 +129,11 @@ func (r *serverResource) Create(ctx context.Context, req resource.CreateRequest,
 	// response is answered by a replay instead of a second server.
 	out, err := r.c.CreateServer(ctx, plan.Name.ValueString(), uuid.NewString())
 	if err != nil {
-		addAPIError(&resp.Diagnostics, "Creating the server failed", err)
+		detail := apiErrorDetail(err)
+		if createMayHaveSucceeded(err) {
+			detail += "\n\n" + orphanHint
+		}
+		resp.Diagnostics.AddError("Creating the server failed", detail)
 		return
 	}
 
@@ -257,14 +262,34 @@ func (trimmedNameValidator) ValidateString(_ context.Context, req validator.Stri
 	}
 }
 
-// addAPIError reports a failed API call: summary names the operation, the
-// detail is the error text (an *APIError renders title, code, detail and
-// request id; the client has already redacted the bearer). A plan-limit
-// refusal says how to get past it.
+// orphanHint follows a failed create that may still have created the server.
+const orphanHint = "The server may have been created before the request failed. " +
+	"Check `data \"monitorable_servers\"` or the dashboard and `terraform import` it " +
+	"before applying again, or a second server will be created."
+
+// createMayHaveSucceeded reports whether a failed POST /v1/servers can have
+// created the server anyway: a transport error (an attempt may have reached
+// the API before the retries ran out), a cancelled or expired context, an
+// unreadable 2xx, or a 5xx (a 500 is not retried). A 4xx is a refusal: nothing
+// was created.
+func createMayHaveSucceeded(err error) bool {
+	var ae *client.APIError
+	return !errors.As(err, &ae) || ae.Status >= 500
+}
+
+// addAPIError reports a failed API call: summary names the operation and the
+// detail is apiErrorDetail(err).
 func addAPIError(diags *diag.Diagnostics, summary string, err error) {
+	diags.AddError(summary, apiErrorDetail(err))
+}
+
+// apiErrorDetail is the error text (an *APIError renders title, code, detail
+// and request id; the client has already redacted the bearer). A plan-limit
+// refusal says how to get past it.
+func apiErrorDetail(err error) string {
 	detail := err.Error()
 	if client.IsPlanLimit(err) {
 		detail += "\n\nRaise the plan limit at https://app.monitorable.io/billing or remove a server."
 	}
-	diags.AddError(summary, detail)
+	return detail
 }

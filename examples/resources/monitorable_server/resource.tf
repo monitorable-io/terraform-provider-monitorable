@@ -18,6 +18,10 @@ resource "null_resource" "web_agent" {
     user = "ubuntu"
   }
 
+  # install_command is null for an imported server (and after a create whose
+  # response was lost and recovered on retry), so this provisioner applies only
+  # to servers this configuration created. For an imported server, rotate the
+  # agent key in the dashboard and install the agent with the new key.
   provisioner "remote-exec" {
     inline = [monitorable_server.web.install_command]
   }
