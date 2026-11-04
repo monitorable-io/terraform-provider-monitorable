@@ -2,7 +2,9 @@ package provider
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"sync"
 	"testing"
@@ -24,15 +26,14 @@ import (
 // accepts any key that starts with mon_test_fake.
 const accKey = "mon_test_fake-acc"
 
-var (
-	// accFake is the process-wide fake API behind the acceptance suite. It is
-	// nil when MONITORABLE_API_KEY was set before the run: the suite then talks
-	// to the real endpoint (MONITORABLE_ENDPOINT), and tests that need fake
-	// injection call skipIfRealEndpoint (or newTestFake, which does).
-	accFake *fake.Fake
+// accFake is the process-wide fake API behind the acceptance suite. TestMain
+// starts it when MONITORABLE_API_KEY is unset. It is nil when the variable was
+// set before the run: the suite then talks to the real endpoint
+// (MONITORABLE_ENDPOINT, required), and tests that need fake injection call
+// skipIfRealEndpoint (or newTestFake, which does).
+var accFake *fake.Fake
 
-	accOnce sync.Once
-)
+var logRealTargetOnce sync.Once
 
 // testAccProtoV6ProviderFactories serves the provider under test. It wraps the
 // shipped provider with the test-only data source monitorable_test_me (see
@@ -41,7 +42,18 @@ var testAccProtoV6ProviderFactories = map[string]func() (tfprotov6.ProviderServe
 	"monitorable": providerserver.NewProtocol6WithError(&testProvider{Provider: New("test")()}),
 }
 
+// TestMain starts the shared fake (MaxServers 10, default scopes) before any
+// test runs, when MONITORABLE_API_KEY is unset, and points MONITORABLE_ENDPOINT
+// and MONITORABLE_API_KEY at it for the process. Starting it here, not lazily,
+// means no test's t.Setenv cleanup can leave those variables unset for later
+// tests. Tests that call t.Setenv on MONITORABLE_API_KEY or MONITORABLE_ENDPOINT
+// must not run in parallel.
 func TestMain(m *testing.M) {
+	if os.Getenv("MONITORABLE_API_KEY") == "" {
+		accFake = fake.New(fake.Options{MaxServers: 10})
+		os.Setenv("MONITORABLE_ENDPOINT", accFake.URL())
+		os.Setenv("MONITORABLE_API_KEY", accKey)
+	}
 	code := m.Run()
 	if accFake != nil {
 		accFake.Close()
@@ -49,22 +61,36 @@ func TestMain(m *testing.M) {
 	os.Exit(code)
 }
 
+// checkRealEndpointEnv is the real-endpoint guard: a key without an endpoint
+// would send acceptance tests to production.
+func checkRealEndpointEnv(key, endpoint string) error {
+	if key != "" && endpoint == "" {
+		return errors.New("MONITORABLE_ENDPOINT must be set when MONITORABLE_API_KEY is set: acceptance tests never default to production")
+	}
+	return nil
+}
+
 // testAccPreCheck is the PreCheck of every acceptance test that can also run on
-// a real endpoint. Without MONITORABLE_API_KEY in the environment it starts the
-// shared fake once for the whole package (MaxServers 10, default scopes) and
-// points MONITORABLE_ENDPOINT and MONITORABLE_API_KEY at it for the process.
-// With the variable set it uses the environment as given and starts nothing.
-// Use it for tests that need nothing but a working API; for special Options,
-// seeded data or exact counts use newTestFake instead.
+// a real endpoint. Against the shared fake it does nothing more. Against a real
+// endpoint (MONITORABLE_API_KEY set before the run) it fails the test unless
+// MONITORABLE_ENDPOINT is set too, and logs the target host once, never the
+// key. Use it for tests that need nothing but a working API; for special
+// Options, seeded data or exact counts use newTestFake instead.
 func testAccPreCheck(t *testing.T) {
 	t.Helper()
-	accOnce.Do(func() {
-		if os.Getenv("MONITORABLE_API_KEY") != "" {
-			return
+	if accFake != nil {
+		return
+	}
+	endpoint := os.Getenv("MONITORABLE_ENDPOINT")
+	if err := checkRealEndpointEnv(os.Getenv("MONITORABLE_API_KEY"), endpoint); err != nil {
+		t.Fatal(err)
+	}
+	logRealTargetOnce.Do(func() {
+		host := endpoint
+		if u, err := url.Parse(endpoint); err == nil && u.Host != "" {
+			host = u.Host
 		}
-		accFake = fake.New(fake.Options{MaxServers: 10})
-		os.Setenv("MONITORABLE_ENDPOINT", accFake.URL())
-		os.Setenv("MONITORABLE_API_KEY", accKey)
+		t.Logf("acceptance tests run against the real endpoint %s", host)
 	})
 }
 

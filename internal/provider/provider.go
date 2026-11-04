@@ -4,8 +4,11 @@ package provider
 import (
 	"context"
 	"errors"
+	"net"
 	"net/http"
+	"net/url"
 	"os"
+	"strings"
 
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
 	"github.com/hashicorp/terraform-plugin-framework/path"
@@ -88,7 +91,7 @@ func (p *monitorableProvider) Configure(ctx context.Context, req provider.Config
 		return
 	}
 
-	apiKey := firstNonEmpty(cfg.APIKey.ValueString(), os.Getenv(envAPIKey))
+	apiKey := firstNonEmpty(strings.TrimSpace(cfg.APIKey.ValueString()), strings.TrimSpace(os.Getenv(envAPIKey)))
 	endpoint := firstNonEmpty(cfg.Endpoint.ValueString(), os.Getenv(envEndpoint), defaultEndpoint)
 	if apiKey == "" {
 		resp.Diagnostics.AddAttributeError(path.Root("api_key"), "Missing Monitorable API key",
@@ -112,8 +115,10 @@ func (p *monitorableProvider) Configure(ctx context.Context, req provider.Config
 			resp.Diagnostics.AddError("API access is not in your plan", ae.Error())
 		case errors.As(err, &ae):
 			resp.Diagnostics.AddError("The Monitorable API refused the request", ae.Error())
-		default:
+		case isTransportError(err):
 			resp.Diagnostics.AddError("Cannot reach the Monitorable API at "+endpoint, err.Error())
+		default:
+			resp.Diagnostics.AddError("Monitorable API request failed", err.Error())
 		}
 		return
 	}
@@ -126,6 +131,14 @@ func (p *monitorableProvider) Configure(ctx context.Context, req provider.Config
 	})
 	resp.DataSourceData = c
 	resp.ResourceData = c
+}
+
+// isTransportError reports whether err is a network-level failure (the request
+// never got an answer), as opposed to a bad response or a cancelled context.
+func isTransportError(err error) bool {
+	var ue *url.Error
+	var ne net.Error
+	return errors.As(err, &ue) || errors.As(err, &ne)
 }
 
 func firstNonEmpty(vals ...string) string {

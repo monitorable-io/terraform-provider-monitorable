@@ -273,3 +273,62 @@ func TestProviderConfigureAcceptance(t *testing.T) {
 		}},
 	})
 }
+
+func TestProviderConfigureTrimsAPIKey(t *testing.T) {
+	var auth string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		auth = r.Header.Get("Authorization")
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"key_id":1,"key_name":"k","scopes":[],"role":"admin","organization_id":1,"organization_name":"o","plan_name":"Pro","expires_at":null}`))
+	}))
+	defer srv.Close()
+
+	// Attribute.
+	t.Setenv("MONITORABLE_API_KEY", "")
+	if resp := configure(t, "x", ptr(" mon_test_fake-trim\n"), ptr(srv.URL)); resp.Diagnostics.HasError() {
+		t.Fatal(resp.Diagnostics)
+	}
+	if auth != "Bearer mon_test_fake-trim" {
+		t.Errorf("attribute: Authorization = %q", auth)
+	}
+	// Environment (a trailing newline from `export K=$(cat file)` is the usual cause).
+	t.Setenv("MONITORABLE_API_KEY", "mon_test_fake-env\n")
+	if resp := configure(t, "x", nil, ptr(srv.URL)); resp.Diagnostics.HasError() {
+		t.Fatal(resp.Diagnostics)
+	}
+	if auth != "Bearer mon_test_fake-env" {
+		t.Errorf("env: Authorization = %q", auth)
+	}
+	// Whitespace only is no key.
+	t.Setenv("MONITORABLE_API_KEY", " \n")
+	resp := configure(t, "x", ptr("  "), ptr(srv.URL))
+	if !resp.Diagnostics.HasError() || !strings.Contains(resp.Diagnostics.Errors()[0].Detail(), "api_key is not set") {
+		t.Errorf("whitespace-only key: %v", resp.Diagnostics)
+	}
+}
+
+func TestProviderConfigureNonTransportFailure(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`not json`))
+	}))
+	defer srv.Close()
+	resp := configure(t, "x", ptr("mon_test_fake-x"), ptr(srv.URL))
+	if !resp.Diagnostics.HasError() {
+		t.Fatal("want an error")
+	}
+	if got := resp.Diagnostics.Errors()[0].Summary(); got != "Monitorable API request failed" {
+		t.Errorf("summary = %q, want %q (a bad response is not unreachability)", got, "Monitorable API request failed")
+	}
+}
+
+func TestCheckRealEndpointEnv(t *testing.T) {
+	if err := checkRealEndpointEnv("k", ""); err == nil || !strings.Contains(err.Error(), "MONITORABLE_ENDPOINT must be set when MONITORABLE_API_KEY is set") {
+		t.Errorf("key without endpoint: %v", err)
+	}
+	for _, c := range [][2]string{{"k", "https://x"}, {"", ""}, {"", "https://x"}} {
+		if err := checkRealEndpointEnv(c[0], c[1]); err != nil {
+			t.Errorf("checkRealEndpointEnv(%q, %q) = %v", c[0], c[1], err)
+		}
+	}
+}
