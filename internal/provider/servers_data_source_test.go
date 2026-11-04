@@ -26,7 +26,6 @@ data "monitorable_servers" "test" {
 }
 `, name)
 	resource.Test(t, resource.TestCase{
-		PreCheck:                 func() { testAccPreCheck(t) },
 		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
 		CheckDestroy:             testAccCheckServerDestroyed(testAccClient(t)),
 		Steps: []resource.TestStep{{

@@ -86,7 +86,6 @@ func TestAlertTemplateDataSourceDefaultByName(t *testing.T) {
 		t.Skipf("the default template's name %q is not unique", name)
 	}
 	resource.Test(t, resource.TestCase{
-		PreCheck:                 func() { testAccPreCheck(t) },
 		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
 		Steps: []resource.TestStep{{
 			Config: templateByName(name),
