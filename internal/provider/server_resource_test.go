@@ -356,6 +356,22 @@ func TestServerImportInvalidID(t *testing.T) {
 	})
 }
 
+// Importing an id the API does not know names it, as the child resources do.
+func TestServerImportNotFound(t *testing.T) {
+	testAccPreCheck(t)
+	resource.Test(t, resource.TestCase{
+		PreCheck:                 func() { testAccPreCheck(t) },
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{{
+			Config:        serverConfig(testAccName("missing-import")),
+			ResourceName:  serverAddr,
+			ImportState:   true,
+			ImportStateId: "2147483000",
+			ExpectError:   regexp.MustCompile(`server 2147483000 not found`),
+		}},
+	})
+}
+
 // Review Focus 4: a read-only key cannot create; the diagnostic names the
 // missing scope and nothing is created or written to state.
 func TestServerCreateForbiddenDiagnostic(t *testing.T) {

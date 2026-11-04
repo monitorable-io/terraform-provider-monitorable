@@ -207,9 +207,21 @@ func (r *serverResource) Delete(ctx context.Context, req resource.DeleteRequest,
 }
 
 // ImportState adopts a server by its decimal id. The agent key cannot be
-// recovered, so agent_api_key and install_command stay null.
+// recovered, so agent_api_key and install_command stay null. A missing server
+// is refused here with the child resources' wording: Read would drop it and
+// Terraform would report only a generic "non-existent remote object".
 func (r *serverResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
-	if _, ok := parseID(path.Root("id"), req.ID, &resp.Diagnostics); !ok {
+	id, ok := parseID(path.Root("id"), req.ID, &resp.Diagnostics)
+	if !ok {
+		return
+	}
+	_, err := r.c.GetServer(ctx, id)
+	if client.IsNotFound(err) {
+		resp.Diagnostics.AddError("Importing the server failed", fmt.Sprintf("server %d not found", id))
+		return
+	}
+	if err != nil {
+		addAPIError(&resp.Diagnostics, "Importing the server failed", err)
 		return
 	}
 	resource.ImportStatePassthroughID(ctx, path.Root("id"), req, resp)

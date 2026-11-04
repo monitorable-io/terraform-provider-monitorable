@@ -5,8 +5,10 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/hashicorp/terraform-plugin-framework/attr"
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
 	dsschema "github.com/hashicorp/terraform-plugin-framework/datasource/schema"
+	"github.com/hashicorp/terraform-plugin-framework/types"
 )
 
 // allDataSources are the constructors Task 5 ships.
@@ -73,6 +75,13 @@ func TestDataSourceSchemasAreDocumented(t *testing.T) {
 		})
 	}
 }
+
+// serverAttrTypes is the Terraform type of one server object, derived from the
+// shared schema the two server data sources build on.
+var serverAttrTypes = func() map[string]attr.Type {
+	obj := dsschema.NestedAttributeObject{Attributes: serverComputedAttributes()}.Type().(types.ObjectType)
+	return obj.AttrTypes
+}()
 
 // TestServerAttrTypesMatchSchema pins that the server object is defined once:
 // monitorable_server and the servers[*] elements carry the same attributes.

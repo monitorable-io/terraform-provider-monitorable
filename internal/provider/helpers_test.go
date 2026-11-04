@@ -2,6 +2,7 @@ package provider
 
 import (
 	"fmt"
+	"math"
 	"testing"
 	"time"
 
@@ -11,7 +12,7 @@ import (
 )
 
 func TestParseID(t *testing.T) {
-	good := map[string]int64{"42": 42, "1": 1, "9007199254740993": 9007199254740993}
+	good := map[string]int64{"42": 42, "1": 1, "2147483647": math.MaxInt32}
 	for in, want := range good {
 		var diags diag.Diagnostics
 		got, ok := parseID(path.Root("id"), in, &diags)
@@ -21,7 +22,9 @@ func TestParseID(t *testing.T) {
 	}
 
 	// Positive decimal integers only: zero is never a valid server or template id.
-	for _, in := range []string{"x", "-1", "0", "", " 42", "42 ", "+5", "007", "1.5", "0x10", "99999999999999999999"} {
+	for _, in := range []string{"x", "-1", "0", "", " 42", "42 ", "+5", "007", "1.5", "0x10", "99999999999999999999",
+		// The API's ids are int32: one past the largest is refused with the same text.
+		"2147483648", "9007199254740993"} {
 		var diags diag.Diagnostics
 		got, ok := parseID(path.Root("id"), in, &diags)
 		if ok || got != 0 {
