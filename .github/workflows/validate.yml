@@ -32,6 +32,8 @@ jobs:
             git status --porcelain -- docs/ >&2
             exit 1
           fi
+      - name: docs validate
+        run: go tool tfplugindocs validate --provider-name monitorable
       # Run via `go run` after setup-go so the scan uses the toolchain from go.mod.
       - name: govulncheck
         run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...

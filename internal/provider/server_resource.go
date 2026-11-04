@@ -86,7 +86,7 @@ func (r *serverResource) Schema(_ context.Context, _ resource.SchemaRequest, res
 			},
 			"install_command": schema.StringAttribute{
 				Description: "The command that installs the agent on the host, exactly as the API returned it. " +
-					"It embeds agent_api_key. Null whenever agent_api_key is.",
+					"It embeds `agent_api_key`. Null whenever `agent_api_key` is.",
 				Computed:      true,
 				Sensitive:     true,
 				PlanModifiers: keep,
@@ -98,7 +98,7 @@ func (r *serverResource) Schema(_ context.Context, _ resource.SchemaRequest, res
 				PlanModifiers: keep,
 			},
 			"created_via": schema.StringAttribute{
-				Description:   "How the server was created, as the API reports it: api for a server this provider created.",
+				Description:   "How the server was created, as the API reports it: `api` for a server this provider created.",
 				Computed:      true,
 				PlanModifiers: keep,
 			},
