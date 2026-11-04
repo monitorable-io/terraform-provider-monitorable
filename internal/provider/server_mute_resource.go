@@ -17,13 +17,15 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/schema/validator"
 	"github.com/hashicorp/terraform-plugin-framework/types"
+	"github.com/hashicorp/terraform-plugin-log/tflog"
 
 	"github.com/monitorable-io/terraform-provider-monitorable/internal/client"
 )
 
 const serverMuteDescription = "A maintenance mute on a server's alerts. Set `until` for a window; omit it to mute until the " +
 	"resource is destroyed. A mute whose `until` has passed stays in state as completed and is not re-applied; " +
-	"change `until` to open a new window. Destroying the resource unmutes the server."
+	"change `until` to open a new window. Destroying the resource unmutes the server. Declare at most one " +
+	"`monitorable_server_mute` per server."
 
 // untilTolerance is how far the API's until may sit from the configured one
 // and still be the same instant: Postgres timestamptz keeps microseconds and
@@ -93,8 +95,9 @@ func (r *serverMuteResource) Schema(_ context.Context, _ resource.SchemaRequest,
 				PlanModifiers: []planmodifier.String{stringplanmodifier.RequiresReplace()},
 			},
 			"active": schema.BoolAttribute{
-				Description: "Whether the server is muted now, as the API reports it. False once a window has passed " +
-					"(the resource then stays in state as completed).",
+				Description: "Whether the server is muted now, as the API reports it. Once the window has passed the " +
+					"resource stays in state as completed and `active` still mirrors the API: it is false unless someone " +
+					"has muted the server again since.",
 				Computed:      true,
 				PlanModifiers: []planmodifier.Bool{boolplanmodifier.UseStateForUnknown()},
 			},
@@ -259,11 +262,48 @@ func (r *serverMuteResource) Delete(ctx context.Context, req resource.DeleteRequ
 	if until != nil && !until.After(time.Now()) {
 		return
 	}
+	// Unmute only the mute this resource set. Under create_before_destroy (which
+	// Terraform also applies to the dependencies of a create_before_destroy
+	// resource) the replacement is created first, so the server already carries
+	// the new window when the old instance is deleted; every replacement changes
+	// until, reason or server_id, so comparing them tells the two apart. The same
+	// check leaves alone a mute set in the dashboard since the last refresh.
+	s, err := r.c.GetServer(ctx, id)
+	if client.IsNotFound(err) {
+		return
+	}
+	if err != nil {
+		addAPIError(&resp.Diagnostics, "Reading the server's mute failed", err)
+		return
+	}
+	if !muteIsOurs(until, state.Reason.ValueString(), s) {
+		tflog.Debug(ctx, "leaving the server's mute in place: it is not the one this resource set", map[string]any{
+			"server_id": id, "api_muted": s.AlertsMuted,
+		})
+		return
+	}
 	// Unmuting a server that is not muted is success, and so is one that is
 	// already gone (the client maps 404 to nil).
 	if err := r.c.UnmuteServerAlerts(ctx, id); err != nil {
 		addAPIError(&resp.Diagnostics, "Unmuting the server's alerts failed", err)
 	}
+}
+
+// muteIsOurs reports whether the mute the API shows on s is the one recorded in
+// state: the server is muted, its until is the state's within untilTolerance
+// (both null counts as the same) and its reason is the state's (a null reason
+// in state is the API's empty one).
+func muteIsOurs(stateUntil *time.Time, stateReason string, s *client.Server) bool {
+	if !s.AlertsMuted || s.AlertsMutedReason != stateReason {
+		return false
+	}
+	switch {
+	case stateUntil == nil && s.AlertsMutedUntil == nil:
+		return true
+	case stateUntil == nil || s.AlertsMutedUntil == nil:
+		return false
+	}
+	return s.AlertsMutedUntil.Sub(*stateUntil).Abs() <= untilTolerance
 }
 
 // ImportState adopts the mute on a server by the server's decimal id. A server

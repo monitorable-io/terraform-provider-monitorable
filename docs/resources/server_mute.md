@@ -3,12 +3,12 @@
 page_title: "monitorable_server_mute Resource - monitorable"
 subcategory: ""
 description: |-
-  A maintenance mute on a server's alerts. Set until for a window; omit it to mute until the resource is destroyed. A mute whose until has passed stays in state as completed and is not re-applied; change until to open a new window. Destroying the resource unmutes the server.
+  A maintenance mute on a server's alerts. Set until for a window; omit it to mute until the resource is destroyed. A mute whose until has passed stays in state as completed and is not re-applied; change until to open a new window. Destroying the resource unmutes the server. Declare at most one monitorable_server_mute per server.
 ---
 
 # monitorable_server_mute (Resource)
 
-A maintenance mute on a server's alerts. Set `until` for a window; omit it to mute until the resource is destroyed. A mute whose `until` has passed stays in state as completed and is not re-applied; change `until` to open a new window. Destroying the resource unmutes the server.
+A maintenance mute on a server's alerts. Set `until` for a window; omit it to mute until the resource is destroyed. A mute whose `until` has passed stays in state as completed and is not re-applied; change `until` to open a new window. Destroying the resource unmutes the server. Declare at most one `monitorable_server_mute` per server.
 
 ## Example Usage
 
@@ -63,7 +63,7 @@ resource "monitorable_server_mute" "until_destroyed" {
 
 ### Read-Only
 
-- `active` (Boolean) Whether the server is muted now, as the API reports it. False once a window has passed (the resource then stays in state as completed).
+- `active` (Boolean) Whether the server is muted now, as the API reports it. Once the window has passed the resource stays in state as completed and `active` still mirrors the API: it is false unless someone has muted the server again since.
 - `id` (String) The server id; a server has at most one mute.
 
 ## Import

@@ -21,6 +21,8 @@ import (
 	"github.com/hashicorp/terraform-plugin-testing/terraform"
 
 	fwresource "github.com/hashicorp/terraform-plugin-framework/resource"
+
+	"github.com/monitorable-io/terraform-provider-monitorable/internal/client"
 )
 
 const muteAddr = "monitorable_server_mute.test"
@@ -150,6 +152,124 @@ func TestServerMuteDestroyUnmutes(t *testing.T) {
 			},
 		}},
 	})
+}
+
+// fakeMuteCheck is a plan check that only runs fn: it lets a test change the
+// fake between Terraform's plan and its apply.
+type fakeMuteCheck func()
+
+func (f fakeMuteCheck) CheckPlan(context.Context, plancheck.CheckPlanRequest, *plancheck.CheckPlanResponse) {
+	f()
+}
+
+// Under create_before_destroy the replacement mute is created before the old
+// instance is deleted. Deleting the old one must not lift the new window.
+func TestServerMuteCreateBeforeDestroyKeepsReplacement(t *testing.T) {
+	skipIfRealEndpoint(t)
+	id := seedServer(t, "mute-cbd")
+	first, second := inHours(1), inHours(2)
+	cfg := func(until string) string {
+		return fmt.Sprintf(`resource "monitorable_server_mute" "test" {
+  server_id = %q
+  until     = %q
+  reason    = "deploy"
+
+  lifecycle {
+    create_before_destroy = true
+  }
+}
+`, idString(id), until)
+	}
+	resource.Test(t, resource.TestCase{
+		PreCheck:                 func() { testAccPreCheck(t) },
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{Config: cfg(first), Check: checkServerMute(t, muteAddr, true, first, "deploy")},
+			{
+				Config: cfg(second),
+				ConfigPlanChecks: resource.ConfigPlanChecks{
+					PreApply: []plancheck.PlanCheck{plancheck.ExpectResourceAction(muteAddr, plancheck.ResourceActionCreateBeforeDestroy)},
+				},
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr(muteAddr, "until", second),
+					resource.TestCheckResourceAttr(muteAddr, "active", "true"),
+					checkServerMute(t, muteAddr, true, second, "deploy"),
+				),
+			},
+			{Config: cfg(second), PlanOnly: true},
+		},
+	})
+}
+
+// A mute set in the dashboard between Terraform's plan and its apply is not
+// the resource's: removing the resource from the configuration (which destroys
+// it) leaves that mute in place.
+func TestServerMuteDestroyLeavesForeignMute(t *testing.T) {
+	skipIfRealEndpoint(t)
+	id := seedServer(t, "mute-foreign")
+	other := time.Now().UTC().Add(3 * time.Hour)
+	// The data source keeps the configuration non-empty once the mute is gone.
+	const keep = "data \"monitorable_test_me\" \"keep\" {}\n"
+	resource.Test(t, resource.TestCase{
+		PreCheck:                 func() { testAccPreCheck(t) },
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config: keep + muteConfigFor(id, "", "deploy"),
+				Check:  resource.TestCheckResourceAttr(muteAddr, "active", "true"),
+			},
+			{
+				Config: keep,
+				ConfigPlanChecks: resource.ConfigPlanChecks{
+					PreApply: []plancheck.PlanCheck{
+						plancheck.ExpectResourceAction(muteAddr, plancheck.ResourceActionDestroy),
+						fakeMuteCheck(func() { accFake.SetMuted(id, &other, "someone else") }),
+					},
+				},
+				Check: func(*terraform.State) error {
+					srv, err := testAccClient(t).GetServer(context.Background(), id)
+					if err != nil {
+						return err
+					}
+					if !srv.AlertsMuted || srv.AlertsMutedReason != "someone else" {
+						return fmt.Errorf("server %d: muted=%v reason=%q after destroy; the dashboard's mute must survive",
+							id, srv.AlertsMuted, srv.AlertsMutedReason)
+					}
+					return nil
+				},
+			},
+		},
+	})
+}
+
+// muteIsOurs decides whether Delete unmutes.
+func TestMuteIsOurs(t *testing.T) {
+	u := time.Date(2026, 11, 5, 6, 0, 0, 123456789, time.UTC)
+	at := func(d time.Duration) *time.Time { v := u.Add(d); return &v }
+	srv := func(muted bool, until *time.Time, reason string) *client.Server {
+		return &client.Server{AlertsMuted: muted, AlertsMutedUntil: until, AlertsMutedReason: reason}
+	}
+	cases := []struct {
+		name   string
+		until  *time.Time
+		reason string
+		s      *client.Server
+		want   bool
+	}{
+		{"same window", at(0), "deploy", srv(true, at(0), "deploy"), true},
+		{"rounded to the microsecond", at(0), "deploy", srv(true, at(-789), "deploy"), true},
+		{"indefinite, null reason", nil, "", srv(true, nil, ""), true},
+		{"not muted", at(0), "deploy", srv(false, nil, ""), false},
+		{"another window", at(0), "deploy", srv(true, at(time.Hour), "deploy"), false},
+		{"another reason", at(0), "deploy", srv(true, at(0), "someone else"), false},
+		{"window where state is indefinite", nil, "", srv(true, at(0), ""), false},
+		{"indefinite where state has a window", at(0), "", srv(true, nil, ""), false},
+	}
+	for _, tc := range cases {
+		if got := muteIsOurs(tc.until, tc.reason, tc.s); got != tc.want {
+			t.Errorf("%s: muteIsOurs = %v, want %v", tc.name, got, tc.want)
+		}
+	}
 }
 
 func TestServerMuteIndefinite(t *testing.T) {
@@ -642,7 +762,7 @@ func TestServerMuteSchemaShape(t *testing.T) {
 	}
 	const desc = "A maintenance mute on a server's alerts. Set `until` for a window; omit it to mute until the resource is destroyed. " +
 		"A mute whose `until` has passed stays in state as completed and is not re-applied; change `until` to open a new window. " +
-		"Destroying the resource unmutes the server."
+		"Destroying the resource unmutes the server. Declare at most one `monitorable_server_mute` per server."
 	if s.Description != desc || s.MarkdownDescription != desc {
 		t.Errorf("description = %q", s.Description)
 	}
