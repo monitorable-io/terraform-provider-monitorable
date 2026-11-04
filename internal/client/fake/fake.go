@@ -483,6 +483,12 @@ func decode(body []byte, v any) *reply {
 	return nil
 }
 
+// sanitizeName is the backend's validation.SanitizeString: NUL bytes are
+// removed, then surrounding whitespace is trimmed. It runs before validName.
+func sanitizeName(name string) string {
+	return strings.TrimSpace(strings.ReplaceAll(name, "\x00", ""))
+}
+
 func validName(name string) *reply {
 	if strings.TrimSpace(name) == "" {
 		r := fail(400, "invalid_argument", "name must not be empty")
@@ -525,7 +531,8 @@ func (f *Fake) createLocked(rec RecordedRequest, body []byte, now time.Time) rep
 	if bad := decode(body, &in); bad != nil {
 		return *bad
 	}
-	if bad := validName(in.Name); bad != nil {
+	name := sanitizeName(in.Name)
+	if bad := validName(name); bad != nil {
 		return *bad
 	}
 	if key := rec.IdempotencyKey; key != "" {
@@ -546,7 +553,7 @@ func (f *Fake) createLocked(rec RecordedRequest, body []byte, now time.Time) rep
 	if f.opt.MaxServers > 0 && len(f.servers) >= f.opt.MaxServers {
 		return fail(402, "plan_limit_reached", fmt.Sprintf("max_servers is %d on your plan", f.opt.MaxServers))
 	}
-	s := f.addLocked(in.Name, "api")
+	s := f.addLocked(name, "api")
 	if rec.IdempotencyKey != "" {
 		f.idem[rec.IdempotencyKey] = idemRecord{name: in.Name, serverID: s.ID}
 	}
@@ -578,10 +585,11 @@ func (f *Fake) patchLocked(id int64, body []byte, now time.Time) reply {
 	if !ok {
 		return fail(404, "not_found", "server not found")
 	}
-	if bad := validName(in.Name); bad != nil {
+	name := sanitizeName(in.Name)
+	if bad := validName(name); bad != nil {
 		return *bad
 	}
-	s.Name = in.Name
+	s.Name = name
 	return reply{status: 200, body: view(s, now)}
 }
 
