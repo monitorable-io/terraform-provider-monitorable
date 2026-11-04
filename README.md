@@ -28,7 +28,7 @@ resource "monitorable_server" "web" {
 }
 ```
 
-Create an API key in the Monitorable dashboard with the scopes `servers:read servers:write alerts:read alerts:write`, export it as `MONITORABLE_API_KEY`, then run `terraform init` and `terraform apply`. Run `monitorable_server.web.install_command` on the host to install the agent. It is a sensitive value: use it through a provisioner (see the `monitorable_server` example in the docs) or read it with `terraform output -raw`.
+Create an API key in the Monitorable dashboard with the scopes `servers:read servers:write alerts:read alerts:write`, export it as `MONITORABLE_API_KEY`, then run `terraform init` and `terraform apply`. Run `monitorable_server.web.install_command` on the host to install the agent. It is a sensitive value: use it through a provisioner (see the `monitorable_server` example in the docs, which uses the built-in `terraform_data`), or declare an output for it with `sensitive = true` (Terraform refuses an output of a sensitive value otherwise) and read it with `terraform output -raw <name>`.
 
 The agent's API key is stored in Terraform state as a sensitive value. Treat state as a secret. See the [provider documentation](docs/index.md) for authentication, import, interrupted applies and limits.
 

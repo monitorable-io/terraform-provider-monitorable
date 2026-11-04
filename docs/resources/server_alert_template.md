@@ -3,12 +3,12 @@
 page_title: "monitorable_server_alert_template Resource - monitorable"
 subcategory: ""
 description: |-
-  Assigns an alert template to a server. A server with no assignment follows the organization's default template. Destroying the resource returns the server to the default template; it never deletes the template. If someone resets the assignment in the dashboard, the next plan assigns it again.
+  Assigns an alert template to a server. A server with no assignment follows the organization's default template. Destroying the resource returns the server to the default template; it never deletes the template. If someone resets the assignment in the dashboard, the next plan assigns it again. Declare at most one monitorable_server_alert_template per server.
 ---
 
 # monitorable_server_alert_template (Resource)
 
-Assigns an alert template to a server. A server with no assignment follows the organization's default template. Destroying the resource returns the server to the default template; it never deletes the template. If someone resets the assignment in the dashboard, the next plan assigns it again.
+Assigns an alert template to a server. A server with no assignment follows the organization's default template. Destroying the resource returns the server to the default template; it never deletes the template. If someone resets the assignment in the dashboard, the next plan assigns it again. Declare at most one `monitorable_server_alert_template` per server.
 
 ## Example Usage
 
