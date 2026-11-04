@@ -3,13 +3,17 @@ package provider
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/hashicorp/terraform-plugin-framework-timetypes/timetypes"
 	"github.com/hashicorp/terraform-plugin-framework/diag"
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/schema/validator"
+
+	"github.com/monitorable-io/terraform-provider-monitorable/internal/client"
 )
 
 // parseID converts a Terraform id string to the API's integer id. Only positive
@@ -67,4 +71,30 @@ func timeFrom(v timetypes.RFC3339) (*time.Time, diag.Diagnostics) {
 		return nil, diags
 	}
 	return &t, diags
+}
+
+// clientFromProviderData is the shared Configure step of every data source
+// and resource: nil provider data (the provider is not configured yet) gives a
+// nil client without an error.
+func clientFromProviderData(data any, diags *diag.Diagnostics) *client.Client {
+	if data == nil {
+		return nil
+	}
+	c, ok := data.(*client.Client)
+	if !ok {
+		diags.AddError("Unexpected provider data", fmt.Sprintf("expected *client.Client, got %T", data))
+		return nil
+	}
+	return c
+}
+
+// idList renders ids ascending and comma-separated: "3, 7".
+func idList(ids []int64) string {
+	sorted := slices.Clone(ids)
+	slices.Sort(sorted)
+	parts := make([]string, len(sorted))
+	for i, id := range sorted {
+		parts[i] = idString(id)
+	}
+	return strings.Join(parts, ", ")
 }

@@ -159,5 +159,11 @@ func (p *monitorableProvider) Resources(_ context.Context) []func() resource.Res
 }
 
 func (p *monitorableProvider) DataSources(_ context.Context) []func() datasource.DataSource {
-	return nil
+	return []func() datasource.DataSource{
+		NewServerDataSource,
+		NewServersDataSource,
+		NewAlertTemplateDataSource,
+		NewAlertTemplatesDataSource,
+		NewNotificationChannelsDataSource,
+	}
 }

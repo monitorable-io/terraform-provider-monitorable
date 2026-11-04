@@ -230,8 +230,9 @@ func TestProviderSchema(t *testing.T) {
 		t.Errorf("endpoint must be optional and not sensitive: %v", ep)
 	}
 	p := New("x")()
-	if n := len(p.DataSources(context.Background())); n != 0 {
-		t.Errorf("shipped DataSources = %d, want 0 in this task", n)
+	// The five data sources; the test-only monitorable_test_me is not shipped.
+	if n := len(p.DataSources(context.Background())); n != 5 {
+		t.Errorf("shipped DataSources = %d, want 5", n)
 	}
 }
 
