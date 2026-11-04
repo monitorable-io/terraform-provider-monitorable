@@ -1,0 +1,37 @@
+name: validate
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+permissions:
+  contents: read
+concurrency:
+  group: validate-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with: { go-version-file: go.mod, cache: true }
+      - run: go build ./...
+      - name: gofmt
+        run: gofmt -l . | tee /dev/stderr | (! read)
+      - run: go vet ./...
+      - run: go test ./...
+      # No MONITORABLE_API_KEY: the acceptance suite starts its own in-process fake.
+      - run: make testacc
+      - name: docs in sync
+        run: |
+          make docs
+          if [ -n "$(git status --porcelain -- docs/)" ]; then
+            echo "docs/ is out of date: run 'make docs' and commit the result" >&2
+            git status --porcelain -- docs/ >&2
+            exit 1
+          fi
+      # Run via `go run` after setup-go so the scan uses the toolchain from go.mod.
+      - name: govulncheck
+        run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
