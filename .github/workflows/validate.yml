@@ -24,6 +24,8 @@ jobs:
       - run: go test ./...
       # No MONITORABLE_API_KEY: the acceptance suite starts its own in-process fake.
       - run: make testacc
+        env:
+          TF_VERSION: "1.17.1"
       - name: docs in sync
         run: |
           make docs
@@ -33,7 +35,7 @@ jobs:
             exit 1
           fi
       - name: docs validate
-        run: go tool tfplugindocs validate --provider-name monitorable
+        run: go tool tfplugindocs validate --provider-name monitorable --tf-version 1.17.1
       # Run via `go run` after setup-go so the scan uses the toolchain from go.mod.
       - name: govulncheck
         run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...

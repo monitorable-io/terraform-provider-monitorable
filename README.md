@@ -28,7 +28,7 @@ resource "monitorable_server" "web" {
 }
 ```
 
-Create an API key in the Monitorable dashboard with the scopes `servers:read servers:write alerts:read alerts:write`, export it as `MONITORABLE_API_KEY`, then run `terraform init` and `terraform apply`. Run `monitorable_server.web.install_command` on the host to install the agent.
+Create an API key in the Monitorable dashboard with the scopes `servers:read servers:write alerts:read alerts:write`, export it as `MONITORABLE_API_KEY`, then run `terraform init` and `terraform apply`. Run `monitorable_server.web.install_command` on the host to install the agent. It is a sensitive value: use it through a provisioner (see the `monitorable_server` example in the docs) or read it with `terraform output -raw`.
 
 The agent's API key is stored in Terraform state as a sensitive value. Treat state as a secret. See the [provider documentation](docs/index.md) for authentication, import, interrupted applies and limits.
 
@@ -39,7 +39,7 @@ Requires the Go version in `go.mod`.
 ```sh
 make build     # go build ./...
 make test      # unit tests
-make testacc   # acceptance tests (about 7 minutes)
+make testacc   # acceptance tests (a few minutes)
 make docs      # regenerate docs/ from the schemas, templates/ and examples/
 make lint      # gofmt and go vet
 ```
