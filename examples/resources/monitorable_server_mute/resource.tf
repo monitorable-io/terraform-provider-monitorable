@@ -14,7 +14,9 @@ resource "monitorable_server_mute" "window" {
 # Mute for the duration of one apply, for example from a deploy pipeline.
 # timestamp() changes on every run, so ignore_changes keeps the mute from being
 # replaced by the next plan: the window is opened once, when the resource is
-# created, and `terraform destroy` lifts it early.
+# created, and `terraform destroy` lifts it early. A pipeline that wants one
+# window per deploy should drop `ignore_changes`: each apply's timestamp() then
+# differs from the state's, which replaces the mute and opens a fresh window.
 resource "monitorable_server_mute" "deploy" {
   server_id = monitorable_server.web.id
   until     = timeadd(timestamp(), "30m")

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"regexp"
+	"strconv"
 	"testing"
 
 	"github.com/google/uuid"
@@ -68,6 +69,16 @@ func serverIDOf(s *terraform.State, addr string) (int64, error) {
 	return id, nil
 }
 
+// mustParseInt64 parses a decimal id from the state, failing the test if it is not one.
+func mustParseInt64(t *testing.T, s string) int64 {
+	t.Helper()
+	n, err := strconv.ParseInt(s, 10, 64)
+	if err != nil {
+		t.Fatalf("%q is not an integer id: %v", s, err)
+	}
+	return n
+}
+
 // checkServerTemplate asserts the API shows templateID on the server of addr.
 func checkServerTemplate(t *testing.T, addr, templateID string) resource.TestCheckFunc {
 	return func(s *terraform.State) error {
@@ -112,7 +123,13 @@ func templatePair(t *testing.T) (first, second string) {
 	case other == 0:
 		return idString(list[0].ID), ""
 	case def == 0:
-		return idString(other), idString(list[0].ID)
+		// No template is flagged default: move back to any other one.
+		for _, tpl := range list {
+			if tpl.ID != other {
+				return idString(other), idString(tpl.ID)
+			}
+		}
+		return idString(other), ""
 	}
 	return idString(other), idString(def)
 }
@@ -213,9 +230,7 @@ func TestAlertTemplateDriftResetInDashboard(t *testing.T) {
 			},
 			{
 				PreConfig: func() {
-					var n int64
-					fmt.Sscanf(serverID, "%d", &n)
-					accFake.SetTemplate(n, 0)
+					accFake.SetTemplate(mustParseInt64(t, serverID), 0)
 				},
 				Config:             tmplConfig(name, "2"),
 				PlanOnly:           true,

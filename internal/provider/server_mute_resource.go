@@ -75,7 +75,9 @@ func (r *serverMuteResource) Schema(_ context.Context, _ resource.SchemaRequest,
 			"until": schema.StringAttribute{
 				Description: "When the mute ends (RFC 3339; any offset, compared as an instant). Omit it to mute until " +
 					"the resource is destroyed. It must be in the future when the mute is created, and at most 366 days " +
-					"ahead. Changing it to another instant replaces the resource, which opens a new window.",
+					"ahead. Changing it to another instant replaces the resource, which opens a new window. A window lifted " +
+					"early in the dashboard is re-created on the next apply only while `until` is still in the future; " +
+					"once it has passed, the resource is a completed record and is left alone.",
 				CustomType:    timetypes.RFC3339Type{},
 				Optional:      true,
 				PlanModifiers: []planmodifier.String{requiresReplaceIfInstantChanges{}},
@@ -164,8 +166,14 @@ func (r *serverMuteResource) Read(ctx context.Context, req resource.ReadRequest,
 		return
 	}
 
-	switch {
-	case s.AlertsMuted:
+	switch muteReadAction(stateUntil, s.AlertsMuted, time.Now()) {
+	case readInert:
+		// R21: the window has passed (or the API says it has, within the
+		// clock-skew grace), so the resource is a completed record. until and
+		// reason stay as they are, whatever the API shows now (a mute someone
+		// set afterwards is theirs); active mirrors the API.
+		state.Active = types.BoolValue(s.AlertsMuted)
+	case readAdopt:
 		state.Active = types.BoolValue(true)
 		state.Until = readUntil(stateUntil, state.Until, s.AlertsMutedUntil)
 		if s.AlertsMutedReason == "" && state.Reason.IsNull() {
@@ -173,11 +181,6 @@ func (r *serverMuteResource) Read(ctx context.Context, req resource.ReadRequest,
 		} else {
 			state.Reason = types.StringValue(s.AlertsMutedReason)
 		}
-	case stateUntil != nil && !stateUntil.After(time.Now()):
-		// The window completed and the API shows the server unmuted: keep the
-		// mute in state, inactive, so the plan is empty. Dropping it would
-		// mute the server again on the next apply, forever.
-		state.Active = types.BoolValue(false)
 	default:
 		// Unmuted early, or an indefinite mute lifted in the dashboard: drop
 		// it so the next apply mutes again.
@@ -186,6 +189,39 @@ func (r *serverMuteResource) Read(ctx context.Context, req resource.ReadRequest,
 	}
 	state.ServerID = types.StringValue(idString(s.ID))
 	resp.Diagnostics.Append(resp.State.Set(ctx, &state)...)
+}
+
+// muteGrace is the clock-skew allowance for a window that is about to end: if
+// the API already reports the server unmuted and until is no more than this far
+// ahead of our clock, the window is treated as completed, not lifted early.
+const muteGrace = time.Minute
+
+type muteRead int
+
+const (
+	readRemove muteRead = iota // not ours any more: drop it, the next apply mutes again
+	readAdopt                  // muted, window open (or indefinite): take the API's until and reason
+	readInert                  // window completed: keep until and reason, active mirrors the API
+)
+
+// muteReadAction chooses Read's branch. stateUntil is the until in state (nil
+// for an indefinite mute), apiMuted is the API's alerts_muted.
+//
+//   - until in the past: inert, whatever the API shows (R21).
+//   - muted otherwise: adopt the API's values.
+//   - unmuted with until within muteGrace of now or earlier: inert (the
+//     window completed; Review Focus 2).
+//   - unmuted otherwise (indefinite, or a window lifted early): remove.
+func muteReadAction(stateUntil *time.Time, apiMuted bool, now time.Time) muteRead {
+	switch {
+	case stateUntil != nil && !stateUntil.After(now):
+		return readInert
+	case apiMuted:
+		return readAdopt
+	case stateUntil != nil && !stateUntil.After(now.Add(muteGrace)):
+		return readInert
+	}
+	return readRemove
 }
 
 // readUntil is the until for a muted server: the state's value when the API's
@@ -219,6 +255,16 @@ func (r *serverMuteResource) Delete(ctx context.Context, req resource.DeleteRequ
 	}
 	id, ok := parseID(path.Root("id"), state.ID.ValueString(), &resp.Diagnostics)
 	if !ok {
+		return
+	}
+	// R21: after the window has passed the mute is no longer ours; a mute on
+	// the server now was set by someone else and is left alone.
+	until, diags := timeFrom(state.Until)
+	resp.Diagnostics.Append(diags...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+	if until != nil && !until.After(time.Now()) {
 		return
 	}
 	// Unmuting a server that is not muted is success, and so is one that is
@@ -278,7 +324,7 @@ func (requiresReplaceIfInstantChanges) PlanModifyString(_ context.Context, req p
 	if !req.PlanValue.IsNull() && !req.PlanValue.IsUnknown() && !req.StateValue.IsNull() && !req.StateValue.IsUnknown() {
 		p, perr := time.Parse(time.RFC3339Nano, req.PlanValue.ValueString())
 		s, serr := time.Parse(time.RFC3339Nano, req.StateValue.ValueString())
-		if perr == nil && serr == nil && p.Equal(s) {
+		if perr == nil && serr == nil && p.Sub(s).Abs() <= untilTolerance {
 			return
 		}
 	}

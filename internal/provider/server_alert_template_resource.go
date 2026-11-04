@@ -203,26 +203,6 @@ func (r *serverAlertTemplateResource) ImportState(ctx context.Context, req resou
 	// template_id is filled in by the Read that follows.
 }
 
-// decimalIDValidator accepts the canonical decimal form of an API id and
-// refuses everything else at plan time, with parseID's message. Unknown values
-// (a reference to a resource not yet created) pass.
-type decimalIDValidator struct{}
-
-const decimalIDDescription = "must be the decimal integer id of an existing object"
-
-func (decimalIDValidator) Description(context.Context) string { return decimalIDDescription }
-
-func (v decimalIDValidator) MarkdownDescription(ctx context.Context) string {
-	return v.Description(ctx)
-}
-
-func (decimalIDValidator) ValidateString(_ context.Context, req validator.StringRequest, resp *validator.StringResponse) {
-	if req.ConfigValue.IsNull() || req.ConfigValue.IsUnknown() {
-		return
-	}
-	parseID(req.Path, req.ConfigValue.ValueString(), &resp.Diagnostics)
-}
-
 // templateIDValidator is decimalIDValidator for template_id, with a pointer to
 // destroy for "0": the API's 0 means "follow the default", which the provider
 // models as the absence of the resource.

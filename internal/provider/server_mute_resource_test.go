@@ -11,8 +11,11 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/diag"
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/schema/validator"
+	"github.com/hashicorp/terraform-plugin-framework/tfsdk"
 	"github.com/hashicorp/terraform-plugin-framework/types"
+	"github.com/hashicorp/terraform-plugin-go/tftypes"
 	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
 	"github.com/hashicorp/terraform-plugin-testing/plancheck"
 	"github.com/hashicorp/terraform-plugin-testing/terraform"
@@ -195,14 +198,12 @@ func TestServerMuteExpiredStaysInState(t *testing.T) {
 				),
 			},
 			{
-				PreConfig: func() {
-					time.Sleep(time.Until(until.Add(time.Second)))
-					var n int64
-					fmt.Sscanf(serverID, "%d", &n)
-					accFake.SetMuted(n, nil, "") // the backend's sweep clears the expired mute
-				},
-				Config:   cfg,
-				PlanOnly: true, // empty: PlanOnly fails on any change
+				// Wait for the window to pass. Nothing is changed on the fake: like the
+				// backend it computes expiry when the server is read, so the API now
+				// reports the server unmuted.
+				PreConfig: func() { time.Sleep(time.Until(until.Add(time.Second))) },
+				Config:    cfg,
+				PlanOnly:  true, // empty: PlanOnly fails on any change
 			},
 			{
 				Config: cfg,
@@ -226,6 +227,55 @@ func TestServerMuteExpiredStaysInState(t *testing.T) {
 	})
 }
 
+// R21: once the window has passed the resource is inert. A mute someone else
+// sets on the server afterwards is theirs: Read leaves until and reason alone,
+// the plan stays empty, and destroying the resource does not lift it.
+func TestServerMuteCompletedWindowIsInert(t *testing.T) {
+	skipIfRealEndpoint(t)
+	id := seedServer(t, "mute-inert")
+	until := time.Now().UTC().Truncate(time.Second).Add(15 * time.Second)
+	cfg := muteConfigFor(id, until.Format(time.RFC3339), "deploy")
+	foreignUntil := time.Now().UTC().Add(3 * time.Hour)
+	resource.Test(t, resource.TestCase{
+		PreCheck:                 func() { testAccPreCheck(t) },
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		CheckDestroy: func(*terraform.State) error {
+			srv, err := testAccClient(t).GetServer(context.Background(), id)
+			if err != nil {
+				return err
+			}
+			if !srv.AlertsMuted || srv.AlertsMutedReason != "other" {
+				return fmt.Errorf("server %d: muted=%v reason=%q after destroy; the dashboard's mute must survive",
+					id, srv.AlertsMuted, srv.AlertsMutedReason)
+			}
+			return nil
+		},
+		Steps: []resource.TestStep{
+			{Config: cfg, Check: resource.TestCheckResourceAttr(muteAddr, "active", "true")},
+			{
+				PreConfig: func() {
+					time.Sleep(time.Until(until.Add(time.Second)))
+					accFake.SetMuted(id, &foreignUntil, "other")
+				},
+				Config:   cfg,
+				PlanOnly: true, // the foreign mute does not plan a replacement
+			},
+			{
+				Config: cfg,
+				ConfigPlanChecks: resource.ConfigPlanChecks{
+					PreApply: []plancheck.PlanCheck{plancheck.ExpectEmptyPlan()},
+				},
+				Check: resource.ComposeAggregateTestCheckFunc(
+					// active mirrors the API; until and reason are still ours.
+					resource.TestCheckResourceAttr(muteAddr, "active", "true"),
+					resource.TestCheckResourceAttr(muteAddr, "until", until.Format(time.RFC3339)),
+					resource.TestCheckResourceAttr(muteAddr, "reason", "deploy"),
+				),
+			},
+		},
+	})
+}
+
 // A mute lifted early in the dashboard (or one that was never ours) is not a
 // completed window: the plan mutes again.
 func TestServerMuteLiftedInDashboardRecreates(t *testing.T) {
@@ -243,9 +293,7 @@ func TestServerMuteLiftedInDashboardRecreates(t *testing.T) {
 			},
 			{
 				PreConfig: func() {
-					var n int64
-					fmt.Sscanf(serverID, "%d", &n)
-					accFake.SetMuted(n, nil, "")
+					accFake.SetMuted(mustParseInt64(t, serverID), nil, "")
 				},
 				Config:             muteConfig(name, "", "deploy"),
 				PlanOnly:           true,
@@ -275,9 +323,7 @@ func TestServerMuteWindowLiftedEarlyRecreates(t *testing.T) {
 			},
 			{
 				PreConfig: func() {
-					var n int64
-					fmt.Sscanf(serverID, "%d", &n)
-					accFake.SetMuted(n, nil, "")
+					accFake.SetMuted(mustParseInt64(t, serverID), nil, "")
 				},
 				Config:             muteConfig(name, until, ""),
 				PlanOnly:           true,
@@ -307,10 +353,8 @@ func TestServerMuteChangedInDashboardReplaces(t *testing.T) {
 			},
 			{
 				PreConfig: func() {
-					var n int64
-					fmt.Sscanf(serverID, "%d", &n)
 					u := time.Now().Add(3 * time.Hour)
-					accFake.SetMuted(n, &u, "someone else")
+					accFake.SetMuted(mustParseInt64(t, serverID), &u, "someone else")
 				},
 				Config:             muteConfig(name, "", "deploy"),
 				PlanOnly:           true,
@@ -601,5 +645,62 @@ func TestServerMuteSchemaShape(t *testing.T) {
 		"Destroying the resource unmutes the server."
 	if s.Description != desc || s.MarkdownDescription != desc {
 		t.Errorf("description = %q", s.Description)
+	}
+}
+
+// Read's branch selection, including the one-minute clock-skew grace (R21).
+func TestMuteReadAction(t *testing.T) {
+	now := time.Date(2026, 11, 5, 12, 0, 0, 0, time.UTC)
+	at := func(d time.Duration) *time.Time { u := now.Add(d); return &u }
+	cases := []struct {
+		name       string
+		until      *time.Time
+		apiMuted   bool
+		want       muteRead
+		wantReason string
+	}{
+		{"indefinite, muted", nil, true, readAdopt, "adopt the API's values"},
+		{"indefinite, lifted in the dashboard", nil, false, readRemove, "re-mute on the next apply"},
+		{"window open, muted", at(time.Hour), true, readAdopt, "adopt"},
+		{"window open, lifted early", at(time.Hour), false, readRemove, "re-mute"},
+		{"window ends in 30s, API already unmuted", at(30 * time.Second), false, readInert, "inside the grace: completed"},
+		{"window ends in exactly the grace, API unmuted", at(muteGrace), false, readInert, "grace boundary is inclusive"},
+		{"window ends in 61s, API unmuted", at(muteGrace + time.Second), false, readRemove, "outside the grace: lifted early"},
+		{"window ends in 30s, API still muted", at(30 * time.Second), true, readAdopt, "still open: adopt"},
+		{"window passed, API unmuted", at(-time.Second), false, readInert, "completed"},
+		{"window ends now, API unmuted", at(0), false, readInert, "until == now has passed"},
+		{"window passed, someone else muted", at(-time.Hour), true, readInert, "inert: their mute is theirs"},
+	}
+	for _, tc := range cases {
+		if got := muteReadAction(tc.until, tc.apiMuted, now); got != tc.want {
+			t.Errorf("%s: action = %d, want %d (%s)", tc.name, got, tc.want, tc.wantReason)
+		}
+	}
+}
+
+// The until modifier uses the same microsecond tolerance as Read.
+func TestUntilModifierTolerance(t *testing.T) {
+	base := time.Date(2026, 11, 5, 6, 0, 0, 0, time.UTC)
+	cases := []struct {
+		name         string
+		plan, state  string
+		wantReplaced bool
+	}{
+		{"same instant, other offset", "2026-11-05T07:00:00+01:00", "2026-11-05T06:00:00Z", false},
+		{"nanoseconds apart", base.Add(400 * time.Nanosecond).Format(time.RFC3339Nano), base.Format(time.RFC3339Nano), false},
+		{"a second apart", base.Add(time.Second).Format(time.RFC3339Nano), base.Format(time.RFC3339Nano), true},
+	}
+	for _, tc := range cases {
+		raw := tftypes.NewValue(tftypes.String, "x")
+		resp := &planmodifier.StringResponse{}
+		requiresReplaceIfInstantChanges{}.PlanModifyString(context.Background(), planmodifier.StringRequest{
+			State:      tfsdk.State{Raw: raw},
+			Plan:       tfsdk.Plan{Raw: raw},
+			PlanValue:  types.StringValue(tc.plan),
+			StateValue: types.StringValue(tc.state),
+		}, resp)
+		if resp.RequiresReplace != tc.wantReplaced {
+			t.Errorf("%s: RequiresReplace = %v, want %v", tc.name, resp.RequiresReplace, tc.wantReplaced)
+		}
 	}
 }
