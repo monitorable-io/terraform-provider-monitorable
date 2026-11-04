@@ -50,6 +50,8 @@ signs:
       - '${artifact}'
 
 release:
+  header: |
+    See [CHANGELOG.md](https://github.com/monitorable-io/terraform-provider-monitorable/blob/{{ .Tag }}/CHANGELOG.md) for the changes in this release.
   extra_files:
     - glob: 'terraform-registry-manifest.json'
       name_template: '{{ .ProjectName }}_{{ .Version }}_manifest.json'
