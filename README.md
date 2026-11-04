@@ -60,7 +60,7 @@ The tests create servers named `tfacc-*` and delete them when they finish. Use a
 
 ## Releasing
 
-Releases are cut by the maintainer:
+Releases are cut by the maintainer. Tag only a commit whose `validate` run on `main` is green; the release builds exactly the tagged tree.
 
 1. Move the `CHANGELOG.md` entries under the new version heading and merge.
 2. Push a `vX.Y.Z` tag. The `release.yml` workflow starts and waits for the maintainer's approval in the `production` environment.

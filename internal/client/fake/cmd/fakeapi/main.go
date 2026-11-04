@@ -1,11 +1,11 @@
-// Command cmd starts the in-process API fake and blocks until interrupted.
+// Command fakeapi starts the in-process API fake and blocks until interrupted.
 //
 // It exists for manual checks of a locally built provider, for example the
 // release dry run: start it, point the provider at the printed URL with
 // MONITORABLE_ENDPOINT, use any key starting with "mon_test_fake" as
 // MONITORABLE_API_KEY, then stop it with Ctrl-C.
 //
-//	go run ./internal/client/fake/cmd
+//	go run ./internal/client/fake/cmd/fakeapi
 package main
 
 import (
