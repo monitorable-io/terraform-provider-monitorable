@@ -5,9 +5,9 @@ All notable changes to this provider are documented here. The format follows
 
 ## [Unreleased]
 
-## [0.1.0] - Unreleased
+## [0.1.0] - 2026-11-05
 
-Initial release. The date is set when the `v0.1.0` tag is cut.
+Initial release.
 
 ### Added
 
