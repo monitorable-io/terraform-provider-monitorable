@@ -1,0 +1,50 @@
+---
+page_title: "Provider: Monitorable"
+description: |-
+  Manage Monitorable servers, their alert template and maintenance mutes with Terraform or OpenTofu.
+---
+
+# Monitorable Provider
+
+The Monitorable provider manages [Monitorable](https://monitorable.io) servers, the alert template each server follows, and maintenance mutes, through the public REST API. It works with Terraform 1.5 or later and OpenTofu 1.6 or later.
+
+Full guide: [monitorable.io/docs/api/terraform](https://monitorable.io/docs/api/terraform/).
+
+## Example usage
+
+{{ tffile "examples/provider/provider.tf" }}
+
+## Authentication
+
+Create an API key in the Monitorable dashboard and give it these four scopes: `servers:read servers:write alerts:read alerts:write`. The dashboard's *Automation* preset covers the server scopes but not `alerts:read`, which the `monitorable_alert_template`, `monitorable_alert_templates` and `monitorable_notification_channels` data sources need, so select the four scopes explicitly.
+
+Pass the key and, if you use a non-default API, the endpoint with environment variables or provider arguments. A provider argument wins over the matching environment variable.
+
+| Setting | Environment variable | Argument | Default |
+| --- | --- | --- | --- |
+| API key | `MONITORABLE_API_KEY` | `api_key` | none (required) |
+| API origin | `MONITORABLE_ENDPOINT` | `endpoint` | `https://api.monitorable.io` |
+
+## Adding servers
+
+There are two ways to bring servers under monitoring:
+
+1. **One resource per server.** Declare a `monitorable_server`, then run its `install_command` on the host (see the example on the resource page). Use this for a known, named set of machines.
+2. **Enrollment keys.** For autoscaling groups and machine images, where servers appear without Terraform creating each one, use an enrollment key. Servers enroll themselves when they boot. See [Enroll servers](https://monitorable.io/docs/api/enroll-servers/).
+
+## State holds the agent key
+
+`monitorable_server` returns the agent's API key as `agent_api_key`, and `install_command` embeds it. Both are marked sensitive, which hides them from plan and apply output, but Terraform still stores them in state in plain text. Treat state as a secret: use an encrypted remote backend with restricted access and never commit it.
+
+A server you import has no key, because the API returns it only once, when the server is created. To install the agent on an imported server, rotate its key in the dashboard.
+
+## Interrupted applies
+
+If an apply is killed or interrupted after the API created a server, or if its retries ran out, the server can exist without Terraform tracking it. Find it with `data "monitorable_servers"` or in the dashboard and adopt it with `terraform import monitorable_server.<name> <id>`. Running the apply again without importing would try to create a second server.
+
+## Limits
+
+- **Plan limit.** When your plan's server limit is reached, creating a server fails with a `402 plan_limit_reached` error that says where to raise the limit. Remove a server or upgrade the plan.
+- **Rate limits.** Writes are limited to 60 per minute per API key. The provider waits and retries when the API answers `429`, so Terraform's default `-parallelism=10` is fine for fleets of up to a few hundred servers. See [rate limits](https://monitorable.io/docs/api/rate-limits/).
+
+{{ .SchemaMarkdown | trimspace }}
