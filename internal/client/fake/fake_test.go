@@ -367,3 +367,27 @@ func TestInjectIdempotencyInProgress(t *testing.T) {
 		t.Fatalf("after the injection = %d, want 201", st)
 	}
 }
+
+// The backend strips NUL and trims whitespace before it validates and stores a
+// name (validation.SanitizeString); the fake does the same on create and rename.
+func TestNameIsSanitized(t *testing.T) {
+	f := newFake(t, fake.Options{})
+	st, _, out := call(t, f, "POST", "/v1/servers", `{"name":"  web\u0000-1 "}`, map[string]string{"Idempotency-Key": "k1"})
+	if st != 201 {
+		t.Fatalf("create = %d, want 201", st)
+	}
+	if got := out["server"].(map[string]any)["name"]; got != "web-1" {
+		t.Errorf("created name = %q, want %q", got, "web-1")
+	}
+	id := itoa(out["server"].(map[string]any)["id"].(float64))
+	st, _, out = call(t, f, "PATCH", "/v1/servers/"+id, `{"name":"\tdb-1\u0000\n"}`, nil)
+	if st != 200 || out["name"] != "db-1" {
+		t.Errorf("rename = %d %q, want 200 %q", st, out["name"], "db-1")
+	}
+	if st, _, _ := call(t, f, "POST", "/v1/servers", `{"name":" \u0000 "}`, map[string]string{"Idempotency-Key": "k2"}); st != 400 {
+		t.Errorf("create of a name that sanitizes to empty = %d, want 400", st)
+	}
+	if st, _, _ := call(t, f, "POST", "/v1/servers", `{"name":"`+strings.Repeat("é", 100)+`"}`, map[string]string{"Idempotency-Key": "k3"}); st != 201 {
+		t.Errorf("create of 100 two-byte characters = %d, want 201", st)
+	}
+}

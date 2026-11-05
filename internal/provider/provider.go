@@ -151,7 +151,9 @@ func firstNonEmpty(vals ...string) string {
 }
 
 func (p *monitorableProvider) Resources(_ context.Context) []func() resource.Resource {
-	return nil
+	return []func() resource.Resource{
+		NewServerResource,
+	}
 }
 
 func (p *monitorableProvider) DataSources(_ context.Context) []func() datasource.DataSource {
