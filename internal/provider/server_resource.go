@@ -107,15 +107,7 @@ func (r *serverResource) Schema(_ context.Context, _ resource.SchemaRequest, res
 }
 
 func (r *serverResource) Configure(_ context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {
-	if req.ProviderData == nil {
-		return
-	}
-	c, ok := req.ProviderData.(*client.Client)
-	if !ok {
-		resp.Diagnostics.AddError("Unexpected provider data", fmt.Sprintf("expected *client.Client, got %T", req.ProviderData))
-		return
-	}
-	r.c = c
+	r.c = clientFromProviderData(req.ProviderData, &resp.Diagnostics)
 }
 
 func (r *serverResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
