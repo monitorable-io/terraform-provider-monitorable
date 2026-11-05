@@ -3,27 +3,38 @@
 page_title: "monitorable_server_mute Resource - monitorable"
 subcategory: ""
 description: |-
-  A maintenance mute on a server's alerts. Set until for a window; omit it to mute until the resource is destroyed. A mute whose until has passed stays in state as completed and is not re-applied; change until to open a new window. Destroying the resource unmutes the server.
+  A maintenance mute on a server's alerts. Set until for a window; omit it to mute until the resource is destroyed. A mute whose until has passed stays in state as completed and is not re-applied; change until to open a new window. Destroying the resource unmutes the server. Declare at most one monitorable_server_mute per server.
 ---
 
 # monitorable_server_mute (Resource)
 
-A maintenance mute on a server's alerts. Set `until` for a window; omit it to mute until the resource is destroyed. A mute whose `until` has passed stays in state as completed and is not re-applied; change `until` to open a new window. Destroying the resource unmutes the server.
+A maintenance mute on a server's alerts. Set `until` for a window; omit it to mute until the resource is destroyed. A mute whose `until` has passed stays in state as completed and is not re-applied; change `until` to open a new window. Destroying the resource unmutes the server. Declare at most one `monitorable_server_mute` per server.
 
 ## Example Usage
 
 ```terraform
-resource "monitorable_server" "web" {
-  name = "web-01"
+# A server takes at most one mute, so each example below mutes its own server.
+
+variable "maintenance_until" {
+  type        = string
+  description = "When the maintenance window ends, RFC 3339, for example 2027-01-15T06:00:00Z."
+}
+
+resource "monitorable_server" "db" {
+  name = "db-01"
 }
 
 # A maintenance window: alerts are muted until the instant passes. After that
 # the resource stays in state as completed (active = false) and is not applied
-# again; change `until` to open a new window.
+# again; set a new `until` to open a new window.
 resource "monitorable_server_mute" "window" {
-  server_id = monitorable_server.web.id
-  until     = "2026-12-01T06:00:00Z"
+  server_id = monitorable_server.db.id
+  until     = var.maintenance_until
   reason    = "kernel upgrade"
+}
+
+resource "monitorable_server" "web" {
+  name = "web-01"
 }
 
 # Mute for the duration of one apply, for example from a deploy pipeline.
@@ -42,9 +53,13 @@ resource "monitorable_server_mute" "deploy" {
   }
 }
 
+resource "monitorable_server" "old" {
+  name = "legacy-01"
+}
+
 # With no `until` the mute lasts until the resource is destroyed.
 resource "monitorable_server_mute" "until_destroyed" {
-  server_id = monitorable_server.web.id
+  server_id = monitorable_server.old.id
   reason    = "decommissioning"
 }
 ```
@@ -63,7 +78,7 @@ resource "monitorable_server_mute" "until_destroyed" {
 
 ### Read-Only
 
-- `active` (Boolean) Whether the server is muted now, as the API reports it. False once a window has passed (the resource then stays in state as completed).
+- `active` (Boolean) Whether the server is muted now, as the API reports it. Once the window has passed the resource stays in state as completed and `active` still mirrors the API: it is false unless someone has muted the server again since.
 - `id` (String) The server id; a server has at most one mute.
 
 ## Import

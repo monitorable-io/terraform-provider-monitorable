@@ -28,7 +28,7 @@ resource "monitorable_server" "web" {
 }
 ```
 
-Create an API key in the Monitorable dashboard with the scopes `servers:read servers:write alerts:read alerts:write`, export it as `MONITORABLE_API_KEY`, then run `terraform init` and `terraform apply`. Run `monitorable_server.web.install_command` on the host to install the agent. It is a sensitive value: use it through a provisioner (see the `monitorable_server` example in the docs) or read it with `terraform output -raw`.
+Create an API key in the Monitorable dashboard with the scopes `servers:read servers:write alerts:read alerts:write`, export it as `MONITORABLE_API_KEY`, then run `terraform init` and `terraform apply`. Run `monitorable_server.web.install_command` on the host to install the agent. It is a sensitive value: use it through a provisioner (see the `monitorable_server` example in the docs, which uses the built-in `terraform_data`), or declare an output for it with `sensitive = true` (Terraform refuses an output of a sensitive value otherwise) and read it with `terraform output -raw <name>`.
 
 The agent's API key is stored in Terraform state as a sensitive value. Treat state as a secret. See the [provider documentation](docs/index.md) for authentication, import, interrupted applies and limits.
 
@@ -50,6 +50,8 @@ make lint      # gofmt and go vet
 
 By default `make testacc` runs against an in-process fake of the API that lives in this repository (`internal/client/fake`), so it needs no account and no network.
 
+It uses Terraform 1.17.1 unless `TF_VERSION` says otherwise. CI also runs it on the supported floors: `make testacc TF_VERSION=1.5.7`, and `make testacc-tofu TOFU=/path/to/tofu` with OpenTofu 1.6.3.
+
 To run against a real endpoint, set both `MONITORABLE_API_KEY` and `MONITORABLE_ENDPOINT`:
 
 ```sh
@@ -62,9 +64,9 @@ The tests create servers named `tfacc-*` and delete them when they finish. Use a
 
 Releases are cut by the maintainer. Tag only a commit whose `validate` run on `main` is green; the release builds exactly the tagged tree.
 
-1. Move the `CHANGELOG.md` entries under the new version heading and merge.
-2. Push a `vX.Y.Z` tag. The `release.yml` workflow starts and waits for the maintainer's approval in the `production` environment.
-3. After approval, GoReleaser builds the archives for every supported platform, signs the `SHA256SUMS` file with GPG and publishes the GitHub release.
+1. Move the `CHANGELOG.md` entries under a dated `## [X.Y.Z] - YYYY-MM-DD` heading and merge.
+2. Push a `vX.Y.Z` tag on that commit of `main`. The `release.yml` workflow starts and waits for the maintainer's approval in the `production` environment.
+3. After approval, the job stops unless the tagged commit is on `main` and `CHANGELOG.md` has the dated heading for the version, then runs the unit tests. GoReleaser builds the archives for every supported platform, signs the `SHA256SUMS` file with GPG and publishes the GitHub release.
 4. The Terraform Registry detects the release and lists the new version.
 
 Before the first release, the public half of the signing key must be registered with the Terraform Registry, and the `GPG_PRIVATE_KEY` and `PASSPHRASE` secrets must exist in the `production` environment. The signing secrets are available to the release job only.

@@ -12,6 +12,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -76,6 +77,25 @@ func New(endpoint, apiKey, userAgent string) (*Client, error) {
 		},
 		sleep: sleepContext,
 	}, nil
+}
+
+// PlaintextHost reports whether the client sends its API key unencrypted to a
+// host that is not local: the endpoint is http:// and its host is not loopback
+// (localhost, 127.0.0.0/8, ::1) and does not end in .lan or .local. It returns
+// the host (with any port) for the caller's warning.
+func (c *Client) PlaintextHost() (string, bool) {
+	u, err := url.Parse(c.endpoint)
+	if err != nil || u.Scheme != "http" {
+		return "", false
+	}
+	h := strings.ToLower(strings.TrimSuffix(u.Hostname(), "."))
+	if h == "localhost" || strings.HasSuffix(h, ".lan") || strings.HasSuffix(h, ".local") {
+		return "", false
+	}
+	if ip := net.ParseIP(h); ip != nil && ip.IsLoopback() {
+		return "", false
+	}
+	return u.Host, true
 }
 
 // call performs one API operation: it JSON-encodes in (if not nil), sends the

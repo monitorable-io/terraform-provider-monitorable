@@ -19,13 +19,10 @@ resource "monitorable_server" "web" {
 
 # Install the agent on the host with the command the API returned when the
 # server was created. install_command embeds the agent's API key; it is
-# sensitive, so Terraform hides the provisioner's output.
-resource "null_resource" "web_agent" {
-  depends_on = [monitorable_server.web]
-
-  triggers = {
-    server_id = monitorable_server.web.id
-  }
+# sensitive, so Terraform hides the provisioner's output. terraform_data is
+# built into Terraform 1.4 and later, so no extra provider is needed.
+resource "terraform_data" "web_agent" {
+  triggers_replace = [monitorable_server.web.id]
 
   connection {
     type = "ssh"

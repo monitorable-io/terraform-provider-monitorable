@@ -7,7 +7,6 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework-timetypes/timetypes"
 	"github.com/hashicorp/terraform-plugin-framework-validators/datasourcevalidator"
 	"github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
-	"github.com/hashicorp/terraform-plugin-framework/attr"
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
 	"github.com/hashicorp/terraform-plugin-framework/datasource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/path"
@@ -53,13 +52,6 @@ type serverDSModel struct {
 	UnackedFiring    types.Int64       `tfsdk:"unacked_firing"`
 	CreatedVia       types.String      `tfsdk:"created_via"`
 }
-
-// serverAttrTypes is the Terraform type of one server object. It is derived
-// from the shared schema, so the two cannot drift.
-var serverAttrTypes = func() map[string]attr.Type {
-	obj := schema.NestedAttributeObject{Attributes: serverComputedAttributes()}.Type().(types.ObjectType)
-	return obj.AttrTypes
-}()
 
 // serverComputedAttributes is the schema of a server object with every
 // attribute computed; monitorable_server overrides id and name to accept

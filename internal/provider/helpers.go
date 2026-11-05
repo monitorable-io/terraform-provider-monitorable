@@ -3,6 +3,7 @@ package provider
 import (
 	"context"
 	"fmt"
+	"math"
 	"slices"
 	"strconv"
 	"strings"
@@ -17,11 +18,12 @@ import (
 )
 
 // parseID converts a Terraform id string to the API's integer id. Only positive
-// decimal integers in canonical form are ids ("42"; not "0", "-1", "+5", "007"
-// or " 42"). On failure it adds an attribute error at p and returns false.
+// decimal integers in canonical form that fit the API's int32 ids are ids
+// ("42"; not "0", "-1", "+5", "007", " 42" or "2147483648"). On failure it adds
+// an attribute error at p and returns false.
 func parseID(p path.Path, s string, diags *diag.Diagnostics) (int64, bool) {
 	n, err := strconv.ParseInt(s, 10, 64)
-	if err != nil || n <= 0 || strconv.FormatInt(n, 10) != s {
+	if err != nil || n <= 0 || n > math.MaxInt32 || strconv.FormatInt(n, 10) != s {
 		diags.AddAttributeError(p, "Invalid id", fmt.Sprintf("id must be a decimal integer, got %q", s))
 		return 0, false
 	}
