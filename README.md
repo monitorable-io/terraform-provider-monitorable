@@ -60,7 +60,14 @@ The tests create servers named `tfacc-*` and delete them when they finish. Use a
 
 ## Releasing
 
-A release is cut by pushing a `vX.Y.Z` tag, which runs the `release.yml` workflow after the maintainer approves it. See `CHANGELOG.md` for released versions.
+Releases are cut by the maintainer. Tag only a commit whose `validate` run on `main` is green; the release builds exactly the tagged tree.
+
+1. Move the `CHANGELOG.md` entries under the new version heading and merge.
+2. Push a `vX.Y.Z` tag. The `release.yml` workflow starts and waits for the maintainer's approval in the `production` environment.
+3. After approval, GoReleaser builds the archives for every supported platform, signs the `SHA256SUMS` file with GPG and publishes the GitHub release.
+4. The Terraform Registry detects the release and lists the new version.
+
+Before the first release, the public half of the signing key must be registered with the Terraform Registry, and the `GPG_PRIVATE_KEY` and `PASSPHRASE` secrets must exist in the `production` environment. The signing secrets are available to the release job only.
 
 ## Security
 
