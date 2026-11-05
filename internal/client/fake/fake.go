@@ -149,7 +149,7 @@ func (f *Fake) SetMuted(id int64, until *time.Time, reason string) {
 	s.AlertsMuted, s.AlertsMutedReason = true, reason
 	s.AlertsMutedUntil = nil
 	if until != nil {
-		u := until.UTC()
+		u := until.UTC().Round(time.Microsecond)
 		s.AlertsMutedUntil = &u
 	}
 }
@@ -687,7 +687,8 @@ func (f *Fake) muteLocked(id int64, body []byte, now time.Time) reply {
 		if err != nil {
 			return fail(400, "invalid_argument", "until must be an RFC 3339 timestamp")
 		}
-		u = u.UTC()
+		// Postgres timestamptz keeps microseconds and rounds to the nearest.
+		u = u.UTC().Round(time.Microsecond)
 		if !u.After(now) {
 			return fail(400, "invalid_argument", "until must be in the future")
 		}
@@ -696,6 +697,8 @@ func (f *Fake) muteLocked(id int64, body []byte, now time.Time) reply {
 		}
 		until = &u
 	}
+	// The backend trims the reason before it validates and stores it.
+	in.Reason = strings.TrimSpace(in.Reason)
 	if len([]rune(in.Reason)) > 200 {
 		return fail(400, "invalid_argument", "reason must be at most 200 characters")
 	}

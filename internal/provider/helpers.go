@@ -1,6 +1,7 @@
 package provider
 
 import (
+	"context"
 	"fmt"
 	"strconv"
 	"time"
@@ -8,6 +9,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework-timetypes/timetypes"
 	"github.com/hashicorp/terraform-plugin-framework/diag"
 	"github.com/hashicorp/terraform-plugin-framework/path"
+	"github.com/hashicorp/terraform-plugin-framework/schema/validator"
 )
 
 // parseID converts a Terraform id string to the API's integer id. Only positive
@@ -20,6 +22,26 @@ func parseID(p path.Path, s string, diags *diag.Diagnostics) (int64, bool) {
 		return 0, false
 	}
 	return n, true
+}
+
+// decimalIDValidator accepts the canonical decimal form of an API id and
+// refuses everything else at plan time, with parseID's message. Unknown values
+// (a reference to a resource not yet created) pass.
+type decimalIDValidator struct{}
+
+const decimalIDDescription = "must be the decimal integer id of an existing object"
+
+func (decimalIDValidator) Description(context.Context) string { return decimalIDDescription }
+
+func (v decimalIDValidator) MarkdownDescription(ctx context.Context) string {
+	return v.Description(ctx)
+}
+
+func (decimalIDValidator) ValidateString(_ context.Context, req validator.StringRequest, resp *validator.StringResponse) {
+	if req.ConfigValue.IsNull() || req.ConfigValue.IsUnknown() {
+		return
+	}
+	parseID(req.Path, req.ConfigValue.ValueString(), &resp.Diagnostics)
 }
 
 // idString is the Terraform form of an API id.

@@ -153,6 +153,8 @@ func firstNonEmpty(vals ...string) string {
 func (p *monitorableProvider) Resources(_ context.Context) []func() resource.Resource {
 	return []func() resource.Resource{
 		NewServerResource,
+		NewServerAlertTemplateResource,
+		NewServerMuteResource,
 	}
 }
 

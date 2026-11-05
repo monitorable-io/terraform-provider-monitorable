@@ -391,3 +391,30 @@ func TestNameIsSanitized(t *testing.T) {
 		t.Errorf("create of 100 two-byte characters = %d, want 201", st)
 	}
 }
+
+// The backend trims the reason and Postgres rounds until to a microsecond; the
+// fake mirrors both so provider tests see what the real API returns.
+func TestMuteTrimsReasonAndRoundsUntil(t *testing.T) {
+	f := newFake(t, fake.Options{})
+	id := f.AddServer("a")
+	base := "/v1/servers/" + itoa(float64(id))
+
+	until := time.Now().Add(2 * time.Hour).UTC().Truncate(time.Second).Add(123456789 * time.Nanosecond)
+	body := `{"until":"` + until.Format(time.RFC3339Nano) + `","reason":"  deploy \t"}`
+	st, _, m := call(t, f, "POST", base+"/alerts:mute", body, nil)
+	if st != 200 || m["reason"] != "deploy" {
+		t.Fatalf("mute = %d %v, want the reason trimmed", st, m)
+	}
+	want := until.Round(time.Microsecond).Format(time.RFC3339Nano)
+	if m["until"] != want {
+		t.Fatalf("until = %v, want %s (rounded to a microsecond)", m["until"], want)
+	}
+	// A reason that is only whitespace trims to empty.
+	if st, _, m := call(t, f, "POST", base+"/alerts:mute", `{"reason":"   "}`, nil); st != 200 || m["reason"] != "" {
+		t.Fatalf("blank reason = %d %v", st, m)
+	}
+	// A control character inside the text is still refused.
+	if st, _, _ := call(t, f, "POST", base+"/alerts:mute", `{"reason":"a\nb"}`, nil); st != 400 {
+		t.Fatalf("control character = %d", st)
+	}
+}
